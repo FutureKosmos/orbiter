@@ -148,7 +148,7 @@ int dxgi_capture_frame(dxgi_dup_t* duplication, dxgi_frame_t* p_dxgi_frame) {
 
 	hr = IDXGIOutputDuplication_AcquireNextFrame(duplication->dup,
 		500,
-		&p_dxgi_frame->frame_info,
+		&p_dxgi_frame->info,
 		&p_dxgi_res);
 	if (FAILED(hr)) {
 
@@ -165,7 +165,7 @@ int dxgi_capture_frame(dxgi_dup_t* duplication, dxgi_frame_t* p_dxgi_frame) {
 	}
 
 	/* no desktop image update, only cursor move. */
-	if (p_dxgi_frame->frame_info.AccumulatedFrames == 0 || p_dxgi_frame->frame_info.LastPresentTime.QuadPart == 0)
+	if (p_dxgi_frame->info.AccumulatedFrames == 0 || p_dxgi_frame->info.LastPresentTime.QuadPart == 0)
 	{
 		printf("no desktop image update, only cursor move.\n");
 
