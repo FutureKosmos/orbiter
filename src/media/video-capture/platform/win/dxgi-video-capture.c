@@ -1,3 +1,4 @@
+#define COBJMACROS
 #include "dxgi-video-capture.h"
 
 bool dxgi_create_duplicator(dxgi_device_t* device, dxgi_dup_t* duplication) {

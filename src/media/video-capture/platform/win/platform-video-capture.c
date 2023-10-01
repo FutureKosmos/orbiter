@@ -1,3 +1,4 @@
+#define COBJMACROS
 #include "dxgi-video-capture.h"
 #include "common/synchronized-queue.h"
 

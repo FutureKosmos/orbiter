@@ -2,11 +2,6 @@ cmake_minimum_required(VERSION 3.10)
 
 project(orbiter)
 
-option(BUILD_ORBITER_SERVER "build orbiter server" ON)
-option(BUILD_ORBITER_CLIENT "build orbiter client" OFF)
-option(BUILD_VIDEO_CAPTURE_MODULE "build video capture" ON)
-
-
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -35,26 +30,19 @@ set(COMMON_SRCS
 	src/common/synchronized-queue.c
 )
 
-set(VIDEO_CAPTURE_MODULE_SRCS
+set(SERVER_SRCS
+	src/orbiter-server.c
 	src/media/video-capture/video-capture.c
+	src/media/video-encode/video-encode.c
 )
 if(WIN32)
-	list(APPEND VIDEO_CAPTURE_MODULE_SRCS 
+	list(APPEND SERVER_SRCS 
 		src/media/video-capture/platform/win/dxgi-video-capture.c
 		src/media/video-capture/platform/win/platform-video-capture.c
+		src/media/video-encode/platform/win/mf-video-encode.c
+		src/media/video-encode/platform/win/platform-video-encode.c
 	)
 endif()
 
-if(BUILD_ORBITER_SERVER)
-	set(SRCS src/orbiter-server.c ${COMMON_SRCS})
-	if(BUILD_VIDEO_CAPTURE_MODULE)
-		list(APPEND SRCS ${VIDEO_CAPTURE_MODULE_SRCS})
-	endif()
-endif()
-
-if(BUILD_ORBITER_CLIENT)
-	set(SRCS src/orbiter-client.c)
-endif()
-
-add_executable(orbiter-server ${SRCS})
+add_executable(orbiter-server ${SERVER_SRCS} ${COMMON_SRCS})
 target_link_libraries(orbiter-server PUBLIC Threads::Threads cdk ${OPENSSL_LIBRARIES})
