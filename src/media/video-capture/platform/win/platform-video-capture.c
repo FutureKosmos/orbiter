@@ -74,6 +74,6 @@ void platform_video_capture(synchronized_queue_t* queue) {
 			continue;
 		}
 		synchronized_queue_enqueue(queue, &frame->node);
-		dump_bgra(frame, &dev, &dup);
+		//dump_bgra(frame, &dev, &dup);
 	}
 }

@@ -21,7 +21,7 @@ int video_encode_thread(void* param) {
 			= synchronized_queue_data(synchronized_queue_dequeue(in), video_capture_frame_t, node);
 
 		video_encode_frame_t* bitstream = video_encode(frame);
-		synchronized_queue_enqueue(out, &bitstream->node);
+		//synchronized_queue_enqueue(out, &bitstream->node);
 	}
 	return 0;
 }
