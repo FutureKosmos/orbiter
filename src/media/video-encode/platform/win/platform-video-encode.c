@@ -26,7 +26,7 @@ static d3d11_video_processor_t d3d11_video_processor;
 static int last_frame_width;
 static int last_frame_height;
 
-static bool _d3d11_create_device(d3d11_device_t* device) {
+static bool _d3d11_create_device(void) {
 	HRESULT hr;
 	IDXGIFactory5* p_dxgi_factory5; /* using five version to control tearing */
 	IDXGIAdapter* p_dxgi_adapter;
@@ -34,8 +34,8 @@ static bool _d3d11_create_device(d3d11_device_t* device) {
 	p_dxgi_factory5 = NULL;
 	p_dxgi_adapter = NULL;
 
-	SAFE_RELEASE(device->device);
-	SAFE_RELEASE(device->context);
+	SAFE_RELEASE(d3d11_device.device);
+	SAFE_RELEASE(d3d11_device.context);
 
 	/**
 	 * using CreateDXGIFactory1 not CreateDXGIFactory for IDXGIOutput1_DuplicateOutput success.
@@ -59,9 +59,9 @@ static bool _d3d11_create_device(d3d11_device_t* device) {
 		NULL,
 		0,
 		D3D11_SDK_VERSION,
-		&device->device,
+		&d3d11_device.device,
 		NULL,
-		&device->context);
+		&d3d11_device.context);
 
 	if (FAILED(hr)) {
 		printf("d3d11 create device and context failed: 0x%x.\n", hr);
@@ -76,21 +76,21 @@ static bool _d3d11_create_device(d3d11_device_t* device) {
 	return true;
 }
 
-static void _d3d11_create_video_device(d3d11_device_t* device, d3d11_video_device_t* video_device) {
+static void _d3d11_create_video_device(void) {
 	HRESULT hr;
-	if (FAILED(hr = ID3D11Device_QueryInterface(device->device, &IID_ID3D11VideoDevice, &video_device->device)))
+	if (FAILED(hr = ID3D11Device_QueryInterface(d3d11_device.device, &IID_ID3D11VideoDevice, &d3d11_video_device.device)))
 	{
 		printf("query video device failed: 0x%x.\n", hr);
 		return;
 	}
-	if (FAILED(hr = ID3D11DeviceContext_QueryInterface(device->context, &IID_ID3D11VideoContext, &video_device->context)))
+	if (FAILED(hr = ID3D11DeviceContext_QueryInterface(d3d11_device.context, &IID_ID3D11VideoContext, &d3d11_video_device.context)))
 	{
 		printf("query video device context failed: 0x%x.\n", hr);
 		return;
 	}
 }
 
-static void _d3d11_bgra_to_nv12(d3d11_video_device_t* device, d3d11_video_processor_t* processor, ID3D11Texture2D* bgra, ID3D11Texture2D* nv12){
+static void _d3d11_bgra_to_nv12(ID3D11Texture2D* bgra, ID3D11Texture2D* nv12){
 	ID3D11VideoProcessorInputView* in_view;
 	ID3D11VideoProcessorOutputView* out_view;
 	D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC in_view_desc;
@@ -104,11 +104,11 @@ static void _d3d11_bgra_to_nv12(d3d11_video_device_t* device, d3d11_video_proces
 	in_view_desc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
 	out_view_desc.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
 
-	if (FAILED(ID3D11VideoDevice_CreateVideoProcessorInputView(device->device, (ID3D11Resource*)bgra, processor->enumerator, &in_view_desc, &in_view))) {
+	if (FAILED(ID3D11VideoDevice_CreateVideoProcessorInputView(d3d11_video_device.device, (ID3D11Resource*)bgra, d3d11_video_processor.enumerator, &in_view_desc, &in_view))) {
 		printf("failed to create video processor input view\n");
 		return;
 	}
-	if (FAILED(ID3D11VideoDevice_CreateVideoProcessorOutputView(device->device, (ID3D11Resource*)nv12, processor->enumerator, &out_view_desc, &out_view))) {
+	if (FAILED(ID3D11VideoDevice_CreateVideoProcessorOutputView(d3d11_video_device.device, (ID3D11Resource*)nv12, d3d11_video_processor.enumerator, &out_view_desc, &out_view))) {
 		printf("failed to create video processor output view\n");
 		SAFE_RELEASE(in_view);
 		return;
@@ -116,7 +116,7 @@ static void _d3d11_bgra_to_nv12(d3d11_video_device_t* device, d3d11_video_proces
 	stream.Enable = true;
 	stream.pInputSurface = in_view;
 	HRESULT hr;
-	if (FAILED(hr = ID3D11VideoContext_VideoProcessorBlt(device->context, processor->processor, out_view, 0, 1, &stream))) {
+	if (FAILED(hr = ID3D11VideoContext_VideoProcessorBlt(d3d11_video_device.context, d3d11_video_processor.processor, out_view, 0, 1, &stream))) {
 		printf("failed to video processor blt\n");
 		SAFE_RELEASE(in_view);
 		SAFE_RELEASE(out_view);
@@ -126,7 +126,7 @@ static void _d3d11_bgra_to_nv12(d3d11_video_device_t* device, d3d11_video_proces
 	SAFE_RELEASE(out_view);
 }
 
-static void _d3d11_create_video_processor(d3d11_video_device_t* device, D3D11_TEXTURE2D_DESC* in_desc, D3D11_TEXTURE2D_DESC* out_desc, d3d11_video_processor_t* processor) {
+static void _d3d11_create_video_processor(D3D11_TEXTURE2D_DESC* in_desc, D3D11_TEXTURE2D_DESC* out_desc) {
 	D3D11_VIDEO_PROCESSOR_CONTENT_DESC content_desc;
 
 	content_desc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
@@ -140,11 +140,11 @@ static void _d3d11_create_video_processor(d3d11_video_device_t* device, D3D11_TE
 	content_desc.OutputWidth = out_desc->Width;
 	content_desc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
 
-	if (FAILED(ID3D11VideoDevice_CreateVideoProcessorEnumerator(device->device, &content_desc, &processor->enumerator))) {
+	if (FAILED(ID3D11VideoDevice_CreateVideoProcessorEnumerator(d3d11_video_device.device, &content_desc, &d3d11_video_processor.enumerator))) {
 		printf("failed to create video processor enumerator\n");
 		return;
 	}
-	if (FAILED(ID3D11VideoDevice_CreateVideoProcessor(device->device, processor->enumerator, 0, &processor->processor))) {
+	if (FAILED(ID3D11VideoDevice_CreateVideoProcessor(d3d11_video_device.device, d3d11_video_processor.enumerator, 0, &d3d11_video_processor.processor))) {
 		printf("failed to create video processor\n");
 		return;
 	}
@@ -210,28 +210,28 @@ video_encode_frame_t* platform_video_encode(video_capture_frame_t* frame) {
 	out_desc.CPUAccessFlags = 0;
 	
 	if (d3d11_device.device == NULL || d3d11_device.context == NULL) {
-		_d3d11_create_device(&d3d11_device);
+		_d3d11_create_device();
 	}
 	if (d3d11_video_device.device == NULL || d3d11_video_device.context == NULL) {
-		_d3d11_create_video_device(&d3d11_device, &d3d11_video_device);
+		_d3d11_create_video_device();
 	}
 	if (last_frame_width != frame->width || last_frame_height != frame->height) {
 		if (d3d11_video_processor.enumerator == NULL || d3d11_video_processor.processor == NULL) {
-			_d3d11_create_video_processor(&d3d11_video_device, &in_desc, &out_desc, &d3d11_video_processor);
+			_d3d11_create_video_processor(&in_desc, &out_desc);
 		}
 		else {
 			/** resolution changed, needed to recreate processor */
 			SAFE_RELEASE(d3d11_video_processor.enumerator);
 			SAFE_RELEASE(d3d11_video_processor.processor);
 
-			_d3d11_create_video_processor(&d3d11_video_device, &in_desc, &out_desc, &d3d11_video_processor);
+			_d3d11_create_video_processor(&in_desc, &out_desc);
 		}
 	}
 	if (FAILED(ID3D11Device_CreateTexture2D(d3d11_device.device, &out_desc, NULL, &texture))) {
 		printf("faliled to create d3d11texture\n");
 		return NULL;
 	}
-	_d3d11_bgra_to_nv12(&d3d11_video_device, &d3d11_video_processor, frame->frame, texture);
+	_d3d11_bgra_to_nv12(frame->frame, texture);
 
 	//dump_nv12(texture, &d3d11_device, 1920, 1080);
 
