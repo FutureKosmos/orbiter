@@ -1,8 +1,6 @@
-#include "dxgi-capture.h"
-#include "video-process.h"
+#include "dxgi-toolkit.h"
+#include "d3d11-toolkit.h"
 #include "common/synchronized-queue.h"
-
-bool running_;
 
 void dump_nv12(ID3D11Texture2D* frame) {
 	static FILE* bgra;
@@ -36,6 +34,9 @@ void dump_nv12(ID3D11Texture2D* frame) {
 
 	for (int i = 0; i < duplicator_.height; i++) {
 		fwrite(dxgi_mapped_rect.pBits + i * dxgi_mapped_rect.Pitch, dxgi_mapped_rect.Pitch, 1, bgra);
+	}
+	for (int i = 0; i < duplicator_.height / 2; i++) {
+		fwrite(dxgi_mapped_rect.pBits + dxgi_mapped_rect.Pitch * duplicator_.height + i * dxgi_mapped_rect.Pitch, dxgi_mapped_rect.Pitch, 1, bgra);
 	}
 	IDXGISurface_Unmap(p_dxgi_surface);
 
@@ -85,54 +86,40 @@ void dump_bgra(dxgi_frame_t* frame) {
 	}
 }
 
-void platform_video_capture_start(synchronized_queue_t* p_nalus) {
+void platform_video_capture(synchronized_queue_t* p_nalus) {
 	dxgi_frame_t frame;
+	ID3D11Texture2D* p_tex = NULL;
+	D3D11_TEXTURE2D_DESC desc;
 
 	d3d11_device_create();
 	dxgi_duplicator_create();
 	d3d11_video_device_create();
+	d3d11_texture2d_create(&p_tex, duplicator_.width, duplicator_.height);
+	ID3D11Texture2D_GetDesc(p_tex, &desc);
 
-	running_ = true;
-	while (running_) {
+	while (true) {
 		dxgi_status_t status = dxgi_capture_frame(&frame);
 		if (status == DXGI_STATUS_TIMEOUT || status == DXGI_STATUS_NO_UPDATE || status == DXGI_STATUS_FAILURE) {
 			continue;
 		}
 		if (status == DXGI_STATUS_RECREATE_DUP) {
-			cdk_loge("Re-create duplicator.\n");
+			cdk_loge("Re-create Duplicator.\n");
 
+			dxgi_duplicator_destroy();
 			dxgi_duplicator_create();
 			continue;
 		}
-		//dump_bgra(frame);
-		ID3D11Texture2D* p_texture;
-		D3D11_TEXTURE2D_DESC out_desc;
-		memset(&out_desc, 0, sizeof(D3D11_TEXTURE2D_DESC));
-
-		out_desc.Width = duplicator_.width;
-		out_desc.Height = duplicator_.height;
-		out_desc.MipLevels = 1;
-		out_desc.ArraySize = 1;
-		out_desc.Format = DXGI_FORMAT_NV12;
-		out_desc.SampleDesc.Count = 1;
-		out_desc.Usage = D3D11_USAGE_DEFAULT;
-		out_desc.BindFlags = D3D11_BIND_RENDER_TARGET;
-		out_desc.CPUAccessFlags = 0;
-
-		if (FAILED(ID3D11Device_CreateTexture2D(d3d11_.p_device, &out_desc, NULL, &p_texture))) {
-			cdk_loge("Faliled to ID3D11Device_CreateTexture2D\n");
-			return;
+		if (desc.Width != duplicator_.width || desc.Height != duplicator_.height) {
+			d3d11_texture2d_destroy(p_tex);
+			d3d11_texture2d_create(&p_tex, duplicator_.width, duplicator_.height);
 		}
-		dump_bgra(&frame);
-		d3d11_bgra_to_nv12(frame.p_texture2d, p_texture);
-		dump_nv12(p_texture);
-		SAFE_RELEASE(p_texture);
+		d3d11_video_processor_create(duplicator_.width, duplicator_.height, desc.Width, desc.Height);
+		d3d11_bgra_to_nv12(frame.p_texture2d, p_tex);
+		dump_nv12(p_tex);
 	}
 	dxgi_duplicator_destroy();
 	d3d11_device_destroy();
 	d3d11_video_device_destroy();
-}
-
-void platform_video_capture_stop(void) {
-	running_ = false;
+	d3d11_video_processor_destroy();
+	d3d11_texture2d_destroy(p_tex);
 }

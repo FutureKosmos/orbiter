@@ -1,33 +1,89 @@
-#include "video-process.h"
+#include "d3d11-toolkit.h"
 
+void d3d11_device_create(void) {
+	HRESULT hr = S_OK;
+	IDXGIFactory5* p_factory5 = NULL; /* using five version to control tearing */
+	IDXGIAdapter* p_adapter = NULL;
 
-typedef struct d3d11_video_processor_s {
-	ID3D11VideoProcessor* p_processor;
-	ID3D11VideoProcessorEnumerator* p_enumerator;
-}d3d11_video_processor_t;
+	memset(&d3d11_, 0, sizeof(d3d11_device_t));
+	/**
+	 * using CreateDXGIFactory1 not CreateDXGIFactory for IDXGIOutput1_DuplicateOutput success.
+	 * https://docs.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgioutput1-duplicateoutput
+	 */
+	if (FAILED(hr = CreateDXGIFactory1(&IID_IDXGIFactory5, &p_factory5)))
+	{
+		cdk_loge("Failed to CreateDXGIFactory1: 0x%x.\n", hr);
+		return;
+	}
+	IDXGIFactory5_EnumAdapters(p_factory5, 0, &p_adapter);
+	/**
+	 * when adapter not null, driver type must be D3D_DRIVER_TYPE_UNKNOWN.
+	 * https://docs.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-d3d11createdevice
+	 */
+	hr = D3D11CreateDevice(p_adapter,
+		D3D_DRIVER_TYPE_UNKNOWN,
+		NULL,
+		0,
+		NULL,
+		0,
+		D3D11_SDK_VERSION,
+		&d3d11_.p_device,
+		NULL,
+		&d3d11_.p_context);
 
-d3d11_video_processor_t d3d11_vp_;
+	if (FAILED(hr)) {
+		cdk_loge("Failed to D3D11CreateDevice: 0x%x.\n", hr);
 
-typedef struct d3d11_video_device_s {
-	ID3D11VideoDevice* p_device;
-	ID3D11VideoContext* p_context;
-}d3d11_video_device_t;
+		SAFE_RELEASE(p_factory5);
+		SAFE_RELEASE(p_adapter);
+		return;
+	}
+	SAFE_RELEASE(p_factory5);
+	SAFE_RELEASE(p_adapter);
+	return;
+}
 
-d3d11_video_device_t d3d11_vd_;
+void d3d11_device_destroy(void) {
+	SAFE_RELEASE(d3d11_.p_device);
+	SAFE_RELEASE(d3d11_.p_context);
+}
 
-static void _d3d11_video_processor_create(D3D11_TEXTURE2D_DESC* p_idesc, D3D11_TEXTURE2D_DESC* p_odesc) {
+void d3d11_texture2d_create(ID3D11Texture2D** pp_texture2d, int width, int height) {
+	D3D11_TEXTURE2D_DESC desc;
+	memset(&desc, 0, sizeof(D3D11_TEXTURE2D_DESC));
+
+	desc.Width = width;
+	desc.Height = height;
+	desc.MipLevels = 1;
+	desc.ArraySize = 1;
+	desc.Format = DXGI_FORMAT_NV12;
+	desc.SampleDesc.Count = 1;
+	desc.Usage = D3D11_USAGE_DEFAULT;
+	desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+
+	if (FAILED(ID3D11Device_CreateTexture2D(d3d11_.p_device, &desc, NULL, pp_texture2d))) {
+		cdk_loge("Faliled to ID3D11Device_CreateTexture2D\n");
+		return;
+	}
+}
+
+void d3d11_texture2d_destroy(ID3D11Texture2D* p_texture2d) {
+	SAFE_RELEASE(p_texture2d);
+}
+
+void d3d11_video_processor_create(int in_width, int in_height, int out_width, int out_heigh) {
 	HRESULT hr = S_OK;
 	D3D11_VIDEO_PROCESSOR_CONTENT_DESC content_desc;
 
 	content_desc.InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE;
 	content_desc.InputFrameRate.Numerator = 1;
 	content_desc.InputFrameRate.Denominator = 1;
-	content_desc.InputHeight = p_idesc->Height;
-	content_desc.InputWidth = p_idesc->Width;
+	content_desc.InputHeight = in_height;
+	content_desc.InputWidth = in_width;
 	content_desc.OutputFrameRate.Numerator = 1;
 	content_desc.OutputFrameRate.Denominator = 1;
-	content_desc.OutputHeight = p_odesc->Height;
-	content_desc.OutputWidth = p_odesc->Width;
+	content_desc.OutputHeight = out_heigh;
+	content_desc.OutputWidth = out_width;
 	content_desc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
 
 	if (FAILED(hr = ID3D11VideoDevice_CreateVideoProcessorEnumerator(d3d11_vd_.p_device, &content_desc, &d3d11_vp_.p_enumerator))) {
@@ -40,29 +96,26 @@ static void _d3d11_video_processor_create(D3D11_TEXTURE2D_DESC* p_idesc, D3D11_T
 	}
 }
 
-static void _d3d11_video_processor_destroy(void) {
+void d3d11_video_processor_destroy(void) {
 	SAFE_RELEASE(d3d11_vp_.p_enumerator);
 	SAFE_RELEASE(d3d11_vp_.p_processor);
 }
 
 void d3d11_video_device_create(void) {
 	HRESULT hr = S_OK;
-	if (!d3d11_vd_.p_device || !d3d11_vd_.p_context) {
-		if (FAILED(hr = ID3D11Device_QueryInterface(d3d11_.p_device, &IID_ID3D11VideoDevice, &d3d11_vd_.p_device))) {
-			cdk_loge("Failed to ID3D11Device_QueryInterface: 0x%x.\n", hr);
-			return;
-		}
-		if (FAILED(hr = ID3D11DeviceContext_QueryInterface(d3d11_.p_context, &IID_ID3D11VideoContext, &d3d11_vd_.p_context))) {
-			cdk_loge("Failed to ID3D11DeviceContext_QueryInterface: 0x%x.\n", hr);
-			return;
-		}
+	if (FAILED(hr = ID3D11Device_QueryInterface(d3d11_.p_device, &IID_ID3D11VideoDevice, &d3d11_vd_.p_device))) {
+		cdk_loge("Failed to ID3D11Device_QueryInterface: 0x%x.\n", hr);
+		return;
+	}
+	if (FAILED(hr = ID3D11DeviceContext_QueryInterface(d3d11_.p_context, &IID_ID3D11VideoContext, &d3d11_vd_.p_context))) {
+		cdk_loge("Failed to ID3D11DeviceContext_QueryInterface: 0x%x.\n", hr);
+		return;
 	}
 }
 
 void d3d11_video_device_destroy(void) {
 	SAFE_RELEASE(d3d11_vd_.p_device);
 	SAFE_RELEASE(d3d11_vd_.p_context);
-	_d3d11_video_processor_destroy();
 }
 
 void d3d11_bgra_to_nv12(ID3D11Texture2D* p_in, ID3D11Texture2D* p_out) {
@@ -81,14 +134,13 @@ void d3d11_bgra_to_nv12(ID3D11Texture2D* p_in, ID3D11Texture2D* p_out) {
 	memset(&stream, 0, sizeof(D3D11_VIDEO_PROCESSOR_STREAM));
 	memset(&idesc, 0, sizeof(D3D11_TEXTURE2D_DESC));
 	memset(&odesc, 0, sizeof(D3D11_TEXTURE2D_DESC));
-	memset(&last, 0, sizeof(D3D11_TEXTURE2D_DESC));
 
 	ID3D11Texture2D_GetDesc(p_in, &idesc);
 	ID3D11Texture2D_GetDesc(p_out, &odesc);
 
 	if (last.Width != idesc.Width || last.Height != idesc.Height) {
-		_d3d11_video_processor_destroy();
-		_d3d11_video_processor_create(&idesc, &odesc);
+		d3d11_video_processor_destroy();
+		d3d11_video_processor_create(idesc.Width, idesc.Height, odesc.Width, odesc.Height);
 	}
 	last = idesc;
 

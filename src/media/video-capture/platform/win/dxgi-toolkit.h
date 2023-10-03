@@ -1,6 +1,6 @@
 _Pragma("once")
 
-#include "common.h"
+#include "d3d11-toolkit.h"
 
 typedef enum dxgi_status_e {
 	DXGI_STATUS_RECREATE_DUP,

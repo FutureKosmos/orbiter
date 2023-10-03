@@ -1,4 +1,4 @@
-#include "dxgi-capture.h"
+#include "dxgi-toolkit.h"
 
 void dxgi_duplicator_create(void) {
 	HRESULT hr = S_OK;
@@ -6,8 +6,6 @@ void dxgi_duplicator_create(void) {
 	IDXGIAdapter* p_adapter = NULL;
 	IDXGIOutput* p_output = NULL;
 	IDXGIOutput1* p_output1 = NULL;
-
-	memset(&duplicator_, 0, sizeof(dxgi_duplicator_t));
 
 	if (FAILED(hr = ID3D11Device_QueryInterface(d3d11_.p_device, &IID_IDXGIDevice, &p_device))) {
 		cdk_loge("Failed to ID3D11Device_QueryInterface: 0x%x.\n", hr);

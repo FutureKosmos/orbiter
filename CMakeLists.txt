@@ -36,9 +36,8 @@ set(SERVER_SRCS
 )
 if(WIN32)
 	list(APPEND SERVER_SRCS 
-		src/media/video-capture/platform/win/common.c
-		src/media/video-capture/platform/win/video-process.c
-		src/media/video-capture/platform/win/dxgi-capture.c
+		src/media/video-capture/platform/win/d3d11-toolkit.c
+		src/media/video-capture/platform/win/dxgi-toolkit.c
 		src/media/video-capture/platform/win/platform-video-capture.c
 	)
 endif()
