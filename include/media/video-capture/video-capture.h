@@ -1,5 +1,6 @@
 _Pragma("once")
 
-#include "video-capture-types.h"
+#include "common/synchronized-queue.h"
 
-extern void video_capture(synchronized_queue_t* queue);
+extern void video_capture_start(synchronized_queue_t* p_nalus);
+extern void video_capture_stop(void);

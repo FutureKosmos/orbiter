@@ -33,14 +33,13 @@ set(COMMON_SRCS
 set(SERVER_SRCS
 	src/orbiter-server.c
 	src/media/video-capture/video-capture.c
-	src/media/video-encode/video-encode.c
 )
 if(WIN32)
 	list(APPEND SERVER_SRCS 
-		src/media/video-capture/platform/win/dxgi-video-capture.c
+		src/media/video-capture/platform/win/common.c
+		src/media/video-capture/platform/win/video-process.c
+		src/media/video-capture/platform/win/dxgi-capture.c
 		src/media/video-capture/platform/win/platform-video-capture.c
-		src/media/video-encode/platform/win/mf-video-encode.c
-		src/media/video-encode/platform/win/platform-video-encode.c
 	)
 endif()
 
