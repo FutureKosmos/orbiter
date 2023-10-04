@@ -6,8 +6,6 @@ _Pragma("once")
 #include <dxgi1_5.h>
 #include <d3d11.h>
 
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "d3d11.lib")
 
 #define SAFE_RELEASE(u) \

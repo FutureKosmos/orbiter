@@ -206,15 +206,15 @@ void d3d11_dump_rawdata(const char* filename, ID3D11Texture2D* p_texture2d, DXGI
 	IDXGISurface_Map(p_surface, &rect, DXGI_MAP_READ);
 
 	if (fmt == DXGI_FORMAT_NV12) {
-		for (int i = 0; i < desc.Height; i++) {
+		for (int i = 0; i < (int)desc.Height; i++) {
 			fwrite(rect.pBits + i * rect.Pitch, rect.Pitch, 1, file);
 		}
-		for (int i = 0; i < desc.Height / 2; i++) {
+		for (int i = 0; i < (int)desc.Height / 2; i++) {
 			fwrite(rect.pBits + rect.Pitch * desc.Height + i * rect.Pitch, rect.Pitch, 1, file);
 		}
 	}
 	if (fmt == DXGI_FORMAT_B8G8R8A8_UNORM) {
-		for (int i = 0; i < desc.Height; i++) {
+		for (int i = 0; i < (int)desc.Height; i++) {
 			fwrite(rect.pBits + i * rect.Pitch, rect.Pitch, 1, file);
 		}
 	}

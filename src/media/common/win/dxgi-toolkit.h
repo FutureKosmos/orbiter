@@ -2,6 +2,9 @@ _Pragma("once")
 
 #include "d3d11-toolkit.h"
 
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "dxguid.lib")
+
 typedef enum dxgi_status_e {
 	DXGI_STATUS_RECREATE_DUP,
 	DXGI_STATUS_TIMEOUT,
