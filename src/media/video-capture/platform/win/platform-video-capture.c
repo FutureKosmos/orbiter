@@ -28,6 +28,7 @@ void platform_video_capture(synchronized_queue_t* p_nalus) {
 		if (desc.Width != duplicator_.width || desc.Height != duplicator_.height) {
 			d3d11_texture2d_destroy(p_tex2d);
 			d3d11_texture2d_create(&p_tex2d, duplicator_.width, duplicator_.height);
+			ID3D11Texture2D_GetDesc(p_tex2d, &desc);
 		}
 		d3d11_bgra_to_nv12(frame.p_texture2d, p_tex2d);
 	}
