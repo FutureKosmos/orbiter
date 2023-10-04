@@ -1,5 +1,29 @@
 #include "d3d11-toolkit.h"
 
+typedef struct d3d11_video_device_s {
+	ID3D11VideoDevice* p_device;
+	ID3D11VideoContext* p_context;
+}d3d11_video_device_t;
+
+static d3d11_video_device_t d3d11_vd_;
+
+static void _d3d11_video_device_create(void) {
+	HRESULT hr = S_OK;
+	if (FAILED(hr = ID3D11Device_QueryInterface(d3d11_.p_device, &IID_ID3D11VideoDevice, &d3d11_vd_.p_device))) {
+		cdk_loge("Failed to ID3D11Device_QueryInterface: 0x%x.\n", hr);
+		return;
+	}
+	if (FAILED(hr = ID3D11DeviceContext_QueryInterface(d3d11_.p_context, &IID_ID3D11VideoContext, &d3d11_vd_.p_context))) {
+		cdk_loge("Failed to ID3D11DeviceContext_QueryInterface: 0x%x.\n", hr);
+		return;
+	}
+}
+
+static void _d3d11_video_device_destroy(void) {
+	SAFE_RELEASE(d3d11_vd_.p_device);
+	SAFE_RELEASE(d3d11_vd_.p_context);
+}
+
 void d3d11_device_create(void) {
 	HRESULT hr = S_OK;
 	IDXGIFactory5* p_factory5 = NULL; /* using five version to control tearing */
@@ -86,6 +110,8 @@ void d3d11_video_processor_create(int in_width, int in_height, int out_width, in
 	content_desc.OutputWidth = out_width;
 	content_desc.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
 
+	_d3d11_video_device_create();
+
 	if (FAILED(hr = ID3D11VideoDevice_CreateVideoProcessorEnumerator(d3d11_vd_.p_device, &content_desc, &d3d11_vp_.p_enumerator))) {
 		cdk_loge("Failed to ID3D11VideoDevice_CreateVideoProcessorEnumerator: 0x%x.\n", hr);
 		return;
@@ -99,23 +125,7 @@ void d3d11_video_processor_create(int in_width, int in_height, int out_width, in
 void d3d11_video_processor_destroy(void) {
 	SAFE_RELEASE(d3d11_vp_.p_enumerator);
 	SAFE_RELEASE(d3d11_vp_.p_processor);
-}
-
-void d3d11_video_device_create(void) {
-	HRESULT hr = S_OK;
-	if (FAILED(hr = ID3D11Device_QueryInterface(d3d11_.p_device, &IID_ID3D11VideoDevice, &d3d11_vd_.p_device))) {
-		cdk_loge("Failed to ID3D11Device_QueryInterface: 0x%x.\n", hr);
-		return;
-	}
-	if (FAILED(hr = ID3D11DeviceContext_QueryInterface(d3d11_.p_context, &IID_ID3D11VideoContext, &d3d11_vd_.p_context))) {
-		cdk_loge("Failed to ID3D11DeviceContext_QueryInterface: 0x%x.\n", hr);
-		return;
-	}
-}
-
-void d3d11_video_device_destroy(void) {
-	SAFE_RELEASE(d3d11_vd_.p_device);
-	SAFE_RELEASE(d3d11_vd_.p_context);
+	_d3d11_video_device_destroy();
 }
 
 void d3d11_bgra_to_nv12(ID3D11Texture2D* p_in, ID3D11Texture2D* p_out) {
@@ -168,4 +178,48 @@ void d3d11_bgra_to_nv12(ID3D11Texture2D* p_in, ID3D11Texture2D* p_out) {
 	}
 	SAFE_RELEASE(p_iv);
 	SAFE_RELEASE(p_ov);
+}
+
+void d3d11_dump_rawdata(const char* filename, ID3D11Texture2D* p_texture2d, DXGI_FORMAT fmt) {
+	static FILE* file;
+	D3D11_TEXTURE2D_DESC desc;
+	ID3D11Texture2D* p_tex2d;
+	IDXGISurface* p_surface;
+	DXGI_MAPPED_RECT rect;
+
+	if (!file) {
+		file = fopen(filename, "ab+");
+	}
+	ID3D11Texture2D_GetDesc(p_texture2d, &desc);
+	desc.MipLevels = 1;
+	desc.ArraySize = 1;
+	desc.SampleDesc.Count = 1;
+	desc.Usage = D3D11_USAGE_STAGING;
+	desc.BindFlags = 0;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	desc.MiscFlags = 0;
+
+	ID3D11Device_CreateTexture2D(d3d11_.p_device, &desc, NULL, &p_tex2d);
+	ID3D11DeviceContext_CopyResource(d3d11_.p_context, (ID3D11Resource*)p_tex2d, (ID3D11Resource*)p_texture2d);
+	ID3D11Texture2D_QueryInterface(p_tex2d, &IID_IDXGISurface, &p_surface);
+	ID3D11Texture2D_Release(p_tex2d);
+	IDXGISurface_Map(p_surface, &rect, DXGI_MAP_READ);
+
+	if (fmt == DXGI_FORMAT_NV12) {
+		for (int i = 0; i < desc.Height; i++) {
+			fwrite(rect.pBits + i * rect.Pitch, rect.Pitch, 1, file);
+		}
+		for (int i = 0; i < desc.Height / 2; i++) {
+			fwrite(rect.pBits + rect.Pitch * desc.Height + i * rect.Pitch, rect.Pitch, 1, file);
+		}
+	}
+	if (fmt == DXGI_FORMAT_B8G8R8A8_UNORM) {
+		for (int i = 0; i < desc.Height; i++) {
+			fwrite(rect.pBits + i * rect.Pitch, rect.Pitch, 1, file);
+		}
+	}
+	IDXGISurface_Unmap(p_surface);
+	IDXGISurface_Release(p_surface);
+	fclose(file);
+	file = NULL;
 }
