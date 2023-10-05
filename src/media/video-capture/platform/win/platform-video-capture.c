@@ -7,7 +7,6 @@ void platform_video_capture(synchronized_queue_t* p_nalus) {
 	dxgi_frame_t frame;
 	ID3D11Texture2D* p_tex2d = NULL;
 	D3D11_TEXTURE2D_DESC desc;
-	MFT_OUTPUT_DATA_BUFFER bitstream;
 	
 	d3d11_device_create();
 	dxgi_duplicator_create();

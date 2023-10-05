@@ -25,6 +25,7 @@ link_directories(third-party/cdk/lib)
 
 set(COMMON_SRCS
 	src/common/synchronized-queue.c
+	src/common/string-utils.c
 )
 
 set(SERVER_SRCS
