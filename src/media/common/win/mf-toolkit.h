@@ -7,5 +7,5 @@ _Pragma("once")
 #pragma comment(lib, "mfuuid.lib")
 
 extern void mf_hw_video_encode(ID3D11Texture2D* p_indata, MFT_OUTPUT_DATA_BUFFER* p_outdata);
-extern void mf_hw_video_encoder_create();
+extern void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int height);
 extern void mf_hw_video_encoder_destroy();
