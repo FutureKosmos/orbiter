@@ -15,7 +15,7 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 	ID3D11Texture2D_GetDesc(p_tex2d, &desc);
 	d3d11_video_processor_create(duplicator_.width, duplicator_.height, desc.Width, desc.Height);
 	
-	mf_hw_video_encoder_create(10*1024*1024*8, 30, 1920, 1080);
+	mf_hw_video_encoder_create(30000000, 30, 1920, 1080);
 
 	while (true) {
 		dxgi_status_t status = dxgi_capture_frame(&frame);
