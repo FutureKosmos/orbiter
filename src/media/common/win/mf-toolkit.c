@@ -10,8 +10,8 @@ typedef struct mf_video_encoder_s {
 	IMFMediaEventGenerator* p_gen;
 	ICodecAPI* p_codec_api;
 	IMFTransform* p_trans;
-	bool async_need_input;
-	bool async_have_output;
+	int in_reqs;
+	int out_reqs;
 	DWORD in_stm_id;
 	DWORD out_stm_id;
 }mf_video_encoder_t;
@@ -37,36 +37,56 @@ static uint64_t _mf_generate_timestamp() {
 	return now * 10000;
 }
 
-static int _mf_hw_video_wait_events() {
-	while (!(encoder_.async_need_input || encoder_.async_have_output)) {
-		IMFMediaEvent* ev = NULL;
-		MediaEventType ev_id = 0;
+static HRESULT _mf_hw_video_drain_event(bool block) {
+	HRESULT hr, status;
+	IMFMediaEvent* p_event;
+	MediaEventType type;
 
-		HRESULT hr = IMFMediaEventGenerator_GetEvent(encoder_.p_gen, 0, &ev);
-		if (FAILED(hr)) {
-			cdk_loge("Failed to IMFMediaEventGenerator_GetEvent: 0x%x.\n", hr);
-			return -1;
-		}
-		IMFMediaEvent_GetType(ev, &ev_id);
-		switch (ev_id) {
-		case METransformNeedInput:
-			encoder_.async_need_input = true;
-			break;
-		case METransformHaveOutput:
-			encoder_.async_have_output = true;
-			break;
-		default:;
-		}
-		IMFMediaEvent_Release(ev);
-	}
-	return 0;
-}
-
-static int _mf_hw_video_enqueue_sample(IMFSample* p_sample) {
-	HRESULT hr = S_OK;
-	if (_mf_hw_video_wait_events() < 0) {
+	hr = IMFMediaEventGenerator_GetEvent(encoder_.p_gen, block ? 0 : MF_EVENT_FLAG_NO_WAIT, &p_event);
+	if (FAILED(hr)) {
+		cdk_loge("Failed to IMFMediaEventGenerator_GetEvent: 0x%x.\n", hr);
 		return -1;
 	}
+	IMFMediaEvent_GetType(p_event, &type);
+	IMFMediaEvent_GetStatus(p_event, &status);
+
+	if (hr != MF_E_NO_EVENTS_AVAILABLE && FAILED(hr)) {
+		goto fail;
+	}
+	if (hr == MF_E_NO_EVENTS_AVAILABLE) {
+		IMFMediaEvent_Release(p_event);
+		return hr;
+	}
+	if (SUCCEEDED(status)) {
+		if (type == METransformNeedInput) {
+			encoder_.in_reqs++;
+		}
+		else if (type == METransformHaveOutput) {
+			encoder_.out_reqs++;
+		}
+	}
+	IMFMediaEvent_Release(p_event);
+	return S_OK;
+
+fail:
+	IMFMediaEvent_Release(p_event);
+	return hr;
+}
+
+static HRESULT _mf_hw_video_drain_events() {
+	HRESULT hr;
+	while ((hr = _mf_hw_video_drain_event(false)) == S_OK);
+	if (hr == MF_E_NO_EVENTS_AVAILABLE) {
+		hr = S_OK;
+	}
+	return hr;
+}
+
+static bool _mf_hw_video_enqueue_sample(IMFSample* p_sample) {
+	
+
+
+
 	if (!encoder_.async_need_input) {
 		return -EAGAIN;
 	}
@@ -79,6 +99,9 @@ static int _mf_hw_video_enqueue_sample(IMFSample* p_sample) {
 	}
 	encoder_.async_need_input = false;
 	return 0;
+
+fail:
+
 }
 
 static int _mf_hw_video_dequeue_sample(IMFSample** pp_sample) {
@@ -324,6 +347,45 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 
 	pts = _mf_generate_timestamp();
 	hr = IMFSample_SetSampleTime(p_in_sample, (LONGLONG)pts);
+
+	HRESULT hr = S_OK;
+	if (FAILED(hr = _mf_hw_video_wait_events())) {
+		cdk_loge("Failed to _mf_hw_video_wait_events: 0x%x.\n", hr);
+		return false;
+	}
+	while (encoder_.out_reqs > 0 && (hr = ProcessOutput()) == S_OK);
+
+	if (hr != MF_E_TRANSFORM_NEED_MORE_INPUT && FAILED(hr)) {
+		MF_LOG_COM(LOG_ERROR, "ProcessOutput()", hr);
+		goto fail;
+	}
+	while (inputRequests == 0) {
+		hr = DrainEvent(false);
+		if (hr == MF_E_NO_EVENTS_AVAILABLE) {
+			Sleep(1);
+			continue;
+		}
+		if (FAILED(hr)) {
+			MF_LOG_COM(LOG_ERROR, "DrainEvent()", hr);
+			goto fail;
+		}
+		if (outputRequests > 0) {
+			hr = ProcessOutput();
+			if (hr != MF_E_TRANSFORM_NEED_MORE_INPUT &&
+				FAILED(hr))
+				goto fail;
+		}
+	}
+	HRC(ProcessInput(sample));
+
+	pendingRequests++;
+
+	*status = SUCCESS;
+	return true;
+
+
+
+
 
 	while (true) {
 		int ret = _mf_hw_video_enqueue_sample(p_in_sample);
