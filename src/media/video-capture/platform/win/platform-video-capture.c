@@ -1,13 +1,13 @@
 #include "media/common/win/d3d11-toolkit.h"
 #include "media/common/win/dxgi-toolkit.h"
 #include "media/common/win/mf-toolkit.h"
-#include "common/synchronized-queue.h"
 
-void platform_video_capture(synchronized_queue_t* p_nalus) {
+void platform_video_capture(synchronized_queue_t* p_frames) {
 	dxgi_frame_t frame;
 	ID3D11Texture2D* p_tex2d = NULL;
 	D3D11_TEXTURE2D_DESC desc;
-	
+	video_frame_t* p_frame = NULL;
+
 	d3d11_device_create();
 	dxgi_duplicator_create();
 	
@@ -35,7 +35,13 @@ void platform_video_capture(synchronized_queue_t* p_nalus) {
 			ID3D11Texture2D_GetDesc(p_tex2d, &desc);
 		}
 		d3d11_bgra_to_nv12(frame.p_texture2d, p_tex2d);
-		//mf_hw_video_encode(p_tex2d, &bitstream);
+		p_frame = malloc(sizeof(video_frame_t));
+		if (p_frame) {
+			memset(p_frame, 0, sizeof(video_frame_t));
+
+			mf_hw_video_encode(p_tex2d, p_frame);
+			synchronized_queue_enqueue(p_frames, &p_frame->node);
+		}
 	}
 	dxgi_duplicator_destroy();
 	d3d11_device_destroy();
