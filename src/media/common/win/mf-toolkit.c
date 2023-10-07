@@ -38,11 +38,11 @@ static uint64_t _mf_generate_timestamp() {
 }
 
 static int _mf_wait_events(void) {
-	HRESULT hr = S_OK;
-	IMFMediaEvent* p_event = NULL;
-	MediaEventType type;
-
 	while (!(encoder_.async_need_input || encoder_.async_have_output)) {
+		HRESULT hr = S_OK;
+		IMFMediaEvent* p_event = NULL;
+		MediaEventType type;
+
 		hr = IMFMediaEventGenerator_GetEvent(encoder_.p_gen, 0, &p_event);
 		if (FAILED(hr)) {
 			cdk_loge("Failed to IMFMediaEventGenerator_GetEvent: 0x%x.\n", hr);
@@ -284,6 +284,12 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 		}
 		break;
 	}
+	UINT resetToken;
+	IMFDXGIDeviceManager* p_manager;
+	MFCreateDXGIDeviceManager(&resetToken, &p_manager);
+	IMFDXGIDeviceManager_ResetDevice(p_manager, d3d11_.p_device, resetToken);
+	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, p_manager);
+
 	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0))) {
 		cdk_loge("Failed to start streaming: 0x%x.\n", hr);
 		goto fail;
@@ -373,6 +379,7 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 		return;
 	}
 	memcpy(p_outdata->bitstream, p_data, len);
+	p_outdata->bslen = len;
 
 	IMFMediaBuffer_Unlock(p_outbuf);
 	IMFMediaBuffer_Release(p_outbuf);

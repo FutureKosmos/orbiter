@@ -2,6 +2,16 @@
 #include "media/common/win/dxgi-toolkit.h"
 #include "media/common/win/mf-toolkit.h"
 
+void dump(const char* filename, video_frame_t* frame) {
+	static FILE* file;
+	if (!file) {
+		file = fopen(filename, "ab+");
+	}
+	fwrite(frame->bitstream, frame->bslen, 1, file);
+	fclose(file);
+	file = NULL;
+}
+
 void platform_video_capture(synchronized_queue_t* p_frames) {
 	dxgi_frame_t frame;
 	ID3D11Texture2D* p_tex2d = NULL;
@@ -15,7 +25,7 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 	ID3D11Texture2D_GetDesc(p_tex2d, &desc);
 	d3d11_video_processor_create(duplicator_.width, duplicator_.height, desc.Width, desc.Height);
 	
-	mf_hw_video_encoder_create(30000000, 30, 1920, 1080);
+	mf_hw_video_encoder_create(50000000, 30, 1920, 1080);
 
 	while (true) {
 		dxgi_status_t status = dxgi_capture_frame(&frame);
@@ -40,7 +50,8 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 			memset(p_frame, 0, sizeof(video_frame_t));
 
 			mf_hw_video_encode(p_tex2d, p_frame);
-			synchronized_queue_enqueue(p_frames, &p_frame->node);
+			dump("dump.h265", p_frame);
+			//synchronized_queue_enqueue(p_frames, &p_frame->node);
 		}
 	}
 	dxgi_duplicator_destroy();
