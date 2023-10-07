@@ -10,6 +10,7 @@ typedef struct mf_video_encoder_s {
 	IMFMediaEventGenerator* p_gen;
 	ICodecAPI* p_codec_api;
 	IMFTransform* p_trans;
+	IMFDXGIDeviceManager* p_manager;
 	bool async_need_input;
 	bool async_have_output;
 	DWORD in_stm_id;
@@ -284,12 +285,23 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 		}
 		break;
 	}
-	UINT resetToken;
-	IMFDXGIDeviceManager* p_manager;
-	MFCreateDXGIDeviceManager(&resetToken, &p_manager);
-	IMFDXGIDeviceManager_ResetDevice(p_manager, d3d11_.p_device, resetToken);
-	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, p_manager);
-
+	UINT token;
+	if (FAILED(hr = MFCreateDXGIDeviceManager(&token, &encoder_.p_manager))) {
+		cdk_loge("Failed to MFCreateDXGIDeviceManager: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = IMFDXGIDeviceManager_ResetDevice(encoder_.p_manager, d3d11_.p_device, token))) {
+		cdk_loge("Failed to IMFDXGIDeviceManager_ResetDevice: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, encoder_.p_manager))) {
+		cdk_loge("Failed to set d3d manager: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_COMMAND_FLUSH, 0))) {
+		cdk_loge("Failed to flush encoder: 0x%x.\n", hr);
+		goto fail;
+	}
 	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0))) {
 		cdk_loge("Failed to start streaming: 0x%x.\n", hr);
 		goto fail;
@@ -321,7 +333,10 @@ fail:
 void mf_hw_video_encoder_destroy() {
 	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
 	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
+	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_COMMAND_FLUSH, 0);
+	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, NULL);
 
+	SAFE_RELEASE(encoder_.p_manager);
 	SAFE_RELEASE(encoder_.p_gen);
 	SAFE_RELEASE(encoder_.p_codec_api);
 	SAFE_RELEASE(encoder_.p_trans);
@@ -343,10 +358,12 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	}
 	if (FAILED(hr = MFCreateSample(&p_sample))) {
 		cdk_loge("Failed to MFCreateSample: 0x%x.\n", hr);
+
+		SAFE_RELEASE(p_inbuf);
 		return;
 	}
 	hr = IMFSample_AddBuffer(p_sample, p_inbuf);
-	IMFMediaBuffer_Release(p_inbuf);
+	SAFE_RELEASE(p_inbuf);
 
 	pts = _mf_generate_timestamp();
 	hr = IMFSample_SetSampleTime(p_sample, (LONGLONG)pts);

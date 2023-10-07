@@ -13,6 +13,7 @@ void dump(const char* filename, video_frame_t* frame) {
 }
 
 void platform_video_capture(synchronized_queue_t* p_frames) {
+	/** dxgi_frame_t's resource release by dxgi_capture_frame.*/
 	dxgi_frame_t frame;
 	ID3D11Texture2D* p_tex2d = NULL;
 	D3D11_TEXTURE2D_DESC desc;
@@ -50,8 +51,8 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 			memset(p_frame, 0, sizeof(video_frame_t));
 
 			mf_hw_video_encode(p_tex2d, p_frame);
-			dump("dump.h265", p_frame);
-			//synchronized_queue_enqueue(p_frames, &p_frame->node);
+			//dump("dump.h265", p_frame);
+			synchronized_queue_enqueue(p_frames, &p_frame->node);
 		}
 	}
 	dxgi_duplicator_destroy();

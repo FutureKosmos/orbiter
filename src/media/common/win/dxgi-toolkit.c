@@ -81,7 +81,7 @@ int dxgi_capture_frame(dxgi_frame_t* p_frame) {
 	}
 	/* no desktop image update, only cursor move. */
 	if (p_frame->frameinfo.AccumulatedFrames == 0 || p_frame->frameinfo.LastPresentTime.QuadPart == 0) {
-		cdk_logd("No Desktop Image update, Only cursor move.\n");
+		//cdk_logd("No Desktop Image update, Only cursor move.\n");
 
 		SAFE_RELEASE(p_resource);
 		return DXGI_STATUS_NO_UPDATE;
