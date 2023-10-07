@@ -10,9 +10,6 @@ static int _video_capture_thread(void* param) {
 
 static int _network_send_thread(void* param) {
 	synchronized_queue_t* queue = param;
-	
-	int fps = 0;
-	uint64_t base = cdk_time_now();
 	while (true) {
 		video_frame_t* frame = synchronized_queue_data(synchronized_queue_dequeue(queue), video_frame_t, node);
 
