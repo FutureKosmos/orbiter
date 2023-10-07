@@ -10,8 +10,8 @@ typedef struct mf_video_encoder_s {
 	IMFMediaEventGenerator* p_gen;
 	ICodecAPI* p_codec_api;
 	IMFTransform* p_trans;
-	int in_reqs;
-	int out_reqs;
+	bool async_need_input;
+	bool async_have_output;
 	DWORD in_stm_id;
 	DWORD out_stm_id;
 }mf_video_encoder_t;
@@ -37,56 +37,40 @@ static uint64_t _mf_generate_timestamp() {
 	return now * 10000;
 }
 
-static HRESULT _mf_hw_video_drain_event(bool block) {
-	HRESULT hr, status;
-	IMFMediaEvent* p_event;
+static int _mf_wait_events(void) {
+	HRESULT hr = S_OK;
+	IMFMediaEvent* p_event = NULL;
 	MediaEventType type;
 
-	hr = IMFMediaEventGenerator_GetEvent(encoder_.p_gen, block ? 0 : MF_EVENT_FLAG_NO_WAIT, &p_event);
-	if (FAILED(hr)) {
-		cdk_loge("Failed to IMFMediaEventGenerator_GetEvent: 0x%x.\n", hr);
-		return -1;
-	}
-	IMFMediaEvent_GetType(p_event, &type);
-	IMFMediaEvent_GetStatus(p_event, &status);
+	while (!(encoder_.async_need_input || encoder_.async_have_output)) {
+		hr = IMFMediaEventGenerator_GetEvent(encoder_.p_gen, 0, &p_event);
+		if (FAILED(hr)) {
+			cdk_loge("Failed to IMFMediaEventGenerator_GetEvent: 0x%x.\n", hr);
+			return -1;
+		}
+		IMFMediaEvent_GetType(p_event, &type);
 
-	if (hr != MF_E_NO_EVENTS_AVAILABLE && FAILED(hr)) {
-		goto fail;
-	}
-	if (hr == MF_E_NO_EVENTS_AVAILABLE) {
+		switch (type) {
+		case METransformNeedInput:
+			encoder_.async_need_input = true;
+			break;
+		case METransformHaveOutput:
+			encoder_.async_have_output = true;
+			break;
+		default:;
+		}
 		IMFMediaEvent_Release(p_event);
-		return hr;
 	}
-	if (SUCCEEDED(status)) {
-		if (type == METransformNeedInput) {
-			encoder_.in_reqs++;
-		}
-		else if (type == METransformHaveOutput) {
-			encoder_.out_reqs++;
-		}
-	}
-	IMFMediaEvent_Release(p_event);
-	return S_OK;
-
-fail:
-	IMFMediaEvent_Release(p_event);
-	return hr;
+	return 0;
 }
 
-static HRESULT _mf_hw_video_drain_events() {
-	HRESULT hr;
-	while ((hr = _mf_hw_video_drain_event(false)) == S_OK);
-	if (hr == MF_E_NO_EVENTS_AVAILABLE) {
-		hr = S_OK;
-	}
-	return hr;
-}
-
-static bool _mf_hw_video_enqueue_sample(IMFSample* p_sample) {
+static int _mf_hw_video_enqueue_sample(IMFSample* p_sample) {
+	int ret = 0;
+	HRESULT hr = S_OK;
 	
-
-
-
+	if ((ret = _mf_wait_events()) < 0) {
+		return ret;
+	}
 	if (!encoder_.async_need_input) {
 		return -EAGAIN;
 	}
@@ -99,9 +83,6 @@ static bool _mf_hw_video_enqueue_sample(IMFSample* p_sample) {
 	}
 	encoder_.async_need_input = false;
 	return 0;
-
-fail:
-
 }
 
 static int _mf_hw_video_dequeue_sample(IMFSample** pp_sample) {
@@ -110,38 +91,53 @@ static int _mf_hw_video_dequeue_sample(IMFSample** pp_sample) {
 		.dwStreamID = encoder_.out_stm_id,
 		.dwStatus = 0,
 		.pEvents = NULL,
-		.pSample = *pp_sample
+		.pSample = NULL
 	};
-	IMFMediaType* p_type = NULL;
-
+	int ret;
 	while (true) {
-		if (_mf_hw_video_wait_events() < 0) {
-			return -1;
+		*pp_sample = NULL;
+
+		if (ret = _mf_wait_events() < 0) {
+			return ret;
 		}
 		if (!encoder_.async_have_output) {
-			return -EAGAIN;
+			ret = 0;
+			break;
 		}
 		DWORD status;
-		if (FAILED(hr = IMFTransform_ProcessOutput(encoder_.p_trans, 0, 1, &outbuf, &status))) {
-			if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
-				return -EAGAIN;
-			}
-			if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
-				IMFTransform_GetOutputAvailableType(encoder_.p_trans, 0, 0, &p_type);
-				IMFTransform_SetOutputType(encoder_.p_trans, 0, p_type, 0);
-
-				encoder_.async_have_output = 0;
-				continue;
-			}
-			cdk_loge("Failed to IMFTransform_ProcessOutput: 0x%x.\n", hr);
-			return -1;
+		hr = IMFTransform_ProcessOutput(encoder_.p_trans, 0, 1, &outbuf, &status);
+		if (outbuf.pEvents) {
+			IMFCollection_Release(outbuf.pEvents);
 		}
-		SAFE_RELEASE(outbuf.pEvents);
-		
+		if (!FAILED(hr)) {
+			*pp_sample = outbuf.pSample;
+			ret = 0;
+			break;
+		}
+		if (outbuf.pSample) {
+			IMFSample_Release(outbuf.pSample);
+		}
+		if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
+			ret = 0;
+		}
+		else if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+			cdk_logi("MF_E_TRANSFORM_STREAM_CHANGE: 0x%x.\n", hr);
+			/**
+			 * Currently, only HEVC is supported, so it is impossible to reach this point; just return normally 
+			 */
+			ret = 0;
+		}
+		else {
+			ret = -1;
+		}
 		break;
 	}
 	encoder_.async_have_output = false;
-	return 0;
+
+	if (!*pp_sample) {
+		ret = -1;
+	}
+	return ret;
 }
 
 /**
@@ -330,105 +326,59 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	HRESULT hr = S_OK;
 	IMFMediaBuffer* p_inbuf = NULL;
 	IMFMediaBuffer* p_outbuf = NULL;
-	IMFSample* p_in_sample = NULL;
-	IMFSample* p_out_sample = NULL;
+	IMFSample* p_sample = NULL;
 	uint64_t pts = 0;
+	BYTE* p_data = NULL;
+	DWORD len = 0;
 
 	if (FAILED(hr = MFCreateDXGISurfaceBuffer(&IID_ID3D11Texture2D, (IUnknown*)p_indata, 0, FALSE, &p_inbuf))) {
 		cdk_loge("Failed to MFCreateDXGISurfaceBuffer: 0x%x.\n", hr);
 		return;
 	}
-	if (FAILED(hr = MFCreateSample(&p_in_sample))) {
+	if (FAILED(hr = MFCreateSample(&p_sample))) {
 		cdk_loge("Failed to MFCreateSample: 0x%x.\n", hr);
 		return;
 	}
-	hr = IMFSample_AddBuffer(p_in_sample, p_inbuf);
+	hr = IMFSample_AddBuffer(p_sample, p_inbuf);
 	IMFMediaBuffer_Release(p_inbuf);
 
 	pts = _mf_generate_timestamp();
-	hr = IMFSample_SetSampleTime(p_in_sample, (LONGLONG)pts);
+	hr = IMFSample_SetSampleTime(p_sample, (LONGLONG)pts);
 
-	HRESULT hr = S_OK;
-	if (FAILED(hr = _mf_hw_video_wait_events())) {
-		cdk_loge("Failed to _mf_hw_video_wait_events: 0x%x.\n", hr);
-		return false;
+	int ret = _mf_hw_video_enqueue_sample(p_sample);
+	if (p_sample) {
+		IMFSample_Release(p_sample);
 	}
-	while (encoder_.out_reqs > 0 && (hr = ProcessOutput()) == S_OK);
-
-	if (hr != MF_E_TRANSFORM_NEED_MORE_INPUT && FAILED(hr)) {
-		MF_LOG_COM(LOG_ERROR, "ProcessOutput()", hr);
-		goto fail;
-	}
-	while (inputRequests == 0) {
-		hr = DrainEvent(false);
-		if (hr == MF_E_NO_EVENTS_AVAILABLE) {
-			Sleep(1);
-			continue;
-		}
-		if (FAILED(hr)) {
-			MF_LOG_COM(LOG_ERROR, "DrainEvent()", hr);
-			goto fail;
-		}
-		if (outputRequests > 0) {
-			hr = ProcessOutput();
-			if (hr != MF_E_TRANSFORM_NEED_MORE_INPUT &&
-				FAILED(hr))
-				goto fail;
-		}
-	}
-	HRC(ProcessInput(sample));
-
-	pendingRequests++;
-
-	*status = SUCCESS;
-	return true;
-
-
-
-
-
-	while (true) {
-		int ret = _mf_hw_video_enqueue_sample(p_in_sample);
-		if (p_in_sample) {
-			IMFSample_Release(p_in_sample);
-		}
-		if (ret < 0 && ret != -EAGAIN) {
-			return;
-		}
-		ret = _mf_hw_video_dequeue_sample(&p_out_sample);
-		if (ret < 0 && ret != -EAGAIN) {
-			return;
-		}
-		if (ret == 0) {
-			break;
-		}
-	}
-	IMFSample_GetTotalLength(p_out_sample, (DWORD*)&p_outdata->bslen);
-	IMFSample_ConvertToContiguousBuffer(p_out_sample, &p_outbuf);
-
-	p_outdata->bitstream = malloc(p_outdata->bslen);
-	if (!p_outdata->bitstream) {
-		SAFE_RELEASE(p_outbuf);
-		SAFE_RELEASE(p_in_sample);
-		SAFE_RELEASE(p_out_sample);
+	if (ret < 0 && ret != -EAGAIN) {
 		return;
 	}
-	if (FAILED(hr = IMFMediaBuffer_Lock(p_outbuf, &p_outdata->bitstream, NULL, NULL))) {
+	ret = _mf_hw_video_dequeue_sample(&p_sample);
+	if (ret < 0) {
+		return;
+	}
+	IMFSample_GetTotalLength(p_sample, (DWORD*)&len);
+	IMFSample_ConvertToContiguousBuffer(p_sample, &p_outbuf);
+
+	if (FAILED(hr = IMFMediaBuffer_Lock(p_outbuf, &p_data, NULL, NULL))) {
 		cdk_loge("Failed to IMFMediaBuffer_Lock: 0x%x.\n", hr);
 
-		free(p_outdata->bitstream);
-		p_outdata->bitstream = NULL;
 		SAFE_RELEASE(p_outbuf);
-		SAFE_RELEASE(p_in_sample);
-		SAFE_RELEASE(p_out_sample);
+		IMFSample_Release(p_sample);
 		return;
 	}
+	p_outdata->bitstream = malloc(len);
+	if (!p_outdata->bitstream) {
+		SAFE_RELEASE(p_outbuf);
+		IMFSample_Release(p_sample);
+		return;
+	}
+	memcpy(p_outdata->bitstream, p_data, len);
+
 	IMFMediaBuffer_Unlock(p_outbuf);
 	IMFMediaBuffer_Release(p_outbuf);
 
 	p_outdata->dts = pts;
 	p_outdata->pts = pts;
 
-	SAFE_RELEASE(p_in_sample);
-	SAFE_RELEASE(p_out_sample);
+	IMFSample_Release(p_sample);
 }
