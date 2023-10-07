@@ -290,11 +290,11 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 		cdk_loge("Failed to MFCreateDXGIDeviceManager: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFDXGIDeviceManager_ResetDevice(encoder_.p_manager, d3d11_.p_device, token))) {
+	if (FAILED(hr = IMFDXGIDeviceManager_ResetDevice(encoder_.p_manager, (IUnknown*)d3d11_.p_device, token))) {
 		cdk_loge("Failed to IMFDXGIDeviceManager_ResetDevice: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, encoder_.p_manager))) {
+	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, (ULONG_PTR)encoder_.p_manager))) {
 		cdk_loge("Failed to set d3d manager: 0x%x.\n", hr);
 		goto fail;
 	}
@@ -334,7 +334,7 @@ void mf_hw_video_encoder_destroy() {
 	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
 	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
 	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_COMMAND_FLUSH, 0);
-	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, NULL);
+	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, (ULONG_PTR)0);
 
 	SAFE_RELEASE(encoder_.p_manager);
 	SAFE_RELEASE(encoder_.p_gen);
@@ -405,4 +405,14 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	p_outdata->pts = pts;
 
 	IMFSample_Release(p_sample);
+}
+
+void mf_dump_video(const char* filename, video_frame_t* frame) {
+	static FILE* file;
+	if (!file) {
+		file = fopen(filename, "ab+");
+	}
+	fwrite(frame->bitstream, frame->bslen, 1, file);
+	fclose(file);
+	file = NULL;
 }

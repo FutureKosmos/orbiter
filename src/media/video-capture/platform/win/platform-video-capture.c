@@ -2,16 +2,6 @@
 #include "media/common/win/dxgi-toolkit.h"
 #include "media/common/win/mf-toolkit.h"
 
-void dump(const char* filename, video_frame_t* frame) {
-	static FILE* file;
-	if (!file) {
-		file = fopen(filename, "ab+");
-	}
-	fwrite(frame->bitstream, frame->bslen, 1, file);
-	fclose(file);
-	file = NULL;
-}
-
 void platform_video_capture(synchronized_queue_t* p_frames) {
 	/** dxgi_frame_t's resource release by dxgi_capture_frame.*/
 	dxgi_frame_t frame;
@@ -51,7 +41,7 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 			memset(p_frame, 0, sizeof(video_frame_t));
 
 			mf_hw_video_encode(p_tex2d, p_frame);
-			//dump("dump.h265", p_frame);
+			mf_dump_video("dump.h265", p_frame);
 			synchronized_queue_enqueue(p_frames, &p_frame->node);
 		}
 	}
