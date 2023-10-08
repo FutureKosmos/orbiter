@@ -16,7 +16,7 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 	ID3D11Texture2D_GetDesc(p_tex2d, &desc);
 	d3d11_video_processor_create(duplicator_.width, duplicator_.height, desc.Width, desc.Height);
 	
-	mf_hw_video_encoder_create(800000, 30, 1920, 1080);
+	mf_hw_video_encoder_create(5000000 /** 5 Mbps */, 30, 1920, 1080);
 
 	while (true) {
 		dxgi_status_t status = dxgi_capture_frame(&frame);
@@ -41,7 +41,6 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 			memset(p_frame, 0, sizeof(video_frame_t));
 
 			mf_hw_video_encode(p_tex2d, p_frame);
-			mf_dump_video("dump.h265", p_frame);
 			synchronized_queue_enqueue(p_frames, &p_frame->node);
 		}
 	}

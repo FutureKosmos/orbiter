@@ -7,6 +7,7 @@ typedef struct video_frame_s {
 	uint64_t bslen;
 	uint64_t dts;
 	uint64_t pts;
+	bool keyframe;
 	synchronized_queue_node_t node;
 }video_frame_t;
 

@@ -5,6 +5,7 @@
 #include <icodecapi.h>
 #include <mftransform.h>
 #include <Mferror.h>
+#include <Codecapi.h>
 
 typedef struct mf_video_encoder_s {
 	IMFMediaEventGenerator* p_gen;
@@ -15,6 +16,7 @@ typedef struct mf_video_encoder_s {
 	bool async_have_output;
 	DWORD in_stm_id;
 	DWORD out_stm_id;
+	int framerate;
 }mf_video_encoder_t;
 
 static mf_video_encoder_t encoder_;
@@ -142,14 +144,27 @@ static int _mf_hw_video_dequeue_sample(IMFSample** pp_sample) {
 }
 
 /**
- * MFSetAttributeSize is missing when using MFT in C.
+ * below functions and macros are missing when using MFT in C.
  */
 static HRESULT MFSetAttributeSize(IMFAttributes* p_attr, REFGUID guid, UINT32 width, UINT32 height) {
 	UINT64 t = (((UINT64)width) << 32) | height;
 	return IMFAttributes_SetUINT64(p_attr, guid, t);
 }
 
+static HRESULT MFGetAttributeSize(IMFAttributes* pattr, REFGUID guid, UINT32* pw, UINT32* ph) {
+	UINT64 t;
+	HRESULT hr = IMFAttributes_GetUINT64(pattr, guid, &t);
+	if (!FAILED(hr)) {
+		*pw = t >> 32;
+		*ph = (UINT32)t;
+	}
+	return hr;
+}
 #define MFSetAttributeRatio MFSetAttributeSize
+#define MFGetAttributeRatio MFGetAttributeSize
+#define VARIANT_VALUE(type, contents) &(VARIANT){ .vt = (type), contents }
+#define VAL_VT_UI4(v) VARIANT_VALUE(VT_UI4, .ulVal = (v))
+#define VAL_VT_BOOL(v) VARIANT_VALUE(VT_BOOL, .boolVal = (v))
 
 void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int height) {
 	HRESULT hr = S_OK;
@@ -243,11 +258,8 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 	}
 	encoder_.in_stm_id = in_stm;
 	encoder_.out_stm_id = out_stm;
+	encoder_.framerate = framerate;
 
-	if (FAILED(hr = IMFAttributes_SetUINT32(p_attrs, &MF_LOW_LATENCY, true))) {
-		cdk_loge("Failed to set MF_LOW_LATENCY: 0x%x.\n", hr);
-		goto fail;
-	}
 	if (FAILED(hr = MFCreateMediaType(&p_out_type))) {
 		cdk_loge("Failed to MFCreateMediaType: 0x%x.\n", hr);
 		goto fail;
@@ -260,6 +272,26 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_ALL_SAMPLES_INDEPENDENT, true);
 
+	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncCommonMeanBitRate, VAL_VT_UI4(bitrate)))) {
+		cdk_loge("Failed to set CODECAPI_AVEncCommonMeanBitRate: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncCommonRateControlMode, VAL_VT_UI4(eAVEncCommonRateControlMode_CBR)))) {
+		cdk_loge("Failed to set CODECAPI_AVEncCommonRateControlMode: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncMPVGOPSize, VAL_VT_UI4(0xffffffff)))) {
+		cdk_loge("Failed to set CODECAPI_AVEncMPVGOPSize: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncMPVDefaultBPictureCount, VAL_VT_UI4(0)))) {
+		cdk_loge("Failed to set CODECAPI_AVEncMPVDefaultBPictureCount: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = IMFAttributes_SetUINT32(p_attrs, &MF_LOW_LATENCY, true))) {
+		cdk_loge("Failed to set MF_LOW_LATENCY: 0x%x.\n", hr);
+		goto fail;
+	}
 	if (FAILED(hr = IMFTransform_SetOutputType(encoder_.p_trans, out_stm, p_out_type, 0))) {
 		cdk_loge("Failed to IMFTransform_SetOutputType: 0x%x.\n", hr);
 		goto fail;
@@ -325,6 +357,7 @@ fail:
 	SAFE_RELEASE(p_attrs);
 	SAFE_RELEASE(p_activate);
 
+	SAFE_RELEASE(encoder_.p_manager);
 	SAFE_RELEASE(encoder_.p_gen);
 	SAFE_RELEASE(encoder_.p_codec_api);
 	SAFE_RELEASE(encoder_.p_trans);
@@ -348,7 +381,6 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	IMFMediaBuffer* p_inbuf = NULL;
 	IMFMediaBuffer* p_outbuf = NULL;
 	IMFSample* p_sample = NULL;
-	uint64_t pts = 0;
 	BYTE* p_data = NULL;
 	DWORD len = 0;
 
@@ -365,8 +397,8 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	hr = IMFSample_AddBuffer(p_sample, p_inbuf);
 	SAFE_RELEASE(p_inbuf);
 
-	pts = _mf_generate_timestamp();
-	hr = IMFSample_SetSampleTime(p_sample, (LONGLONG)pts);
+	hr = IMFSample_SetSampleDuration(p_sample, (LONGLONG)(10000000 / encoder_.framerate));
+	hr = IMFSample_SetSampleTime(p_sample, (LONGLONG)_mf_generate_timestamp());
 
 	int ret = _mf_hw_video_enqueue_sample(p_sample);
 	if (p_sample) {
@@ -401,9 +433,25 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	IMFMediaBuffer_Unlock(p_outbuf);
 	IMFMediaBuffer_Release(p_outbuf);
 
+	LONGLONG pts;
+	hr = IMFSample_GetSampleTime(p_sample, &pts);
+
 	p_outdata->dts = pts;
 	p_outdata->pts = pts;
 
+	UINT32 t32 = 0;
+	hr = IMFAttributes_GetUINT32(p_sample, &MFSampleExtension_CleanPoint, &t32);
+	if (!FAILED(hr) && t32 != 0){
+		p_outdata->keyframe = true;
+	}
+	UINT64 t = 0;
+	hr = IMFAttributes_GetUINT64(p_sample, &MFSampleExtension_DecodeTimestamp, &t);
+	if (!FAILED(hr)) {
+		p_outdata->dts = t;
+		int64_t delta = p_outdata->pts - p_outdata->dts;
+		p_outdata->dts -= delta;
+		p_outdata->pts -= delta;
+	}
 	IMFSample_Release(p_sample);
 }
 
