@@ -99,7 +99,6 @@ static int _mf_hw_video_dequeue_sample(IMFSample** pp_sample) {
 	int ret;
 	while (true) {
 		*pp_sample = NULL;
-
 		if (ret = _mf_wait_events() < 0) {
 			return ret;
 		}
@@ -399,7 +398,7 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 
 	hr = IMFSample_SetSampleDuration(p_sample, (LONGLONG)(10000000 / encoder_.framerate));
 	hr = IMFSample_SetSampleTime(p_sample, (LONGLONG)_mf_generate_timestamp());
-
+	
 	int ret = _mf_hw_video_enqueue_sample(p_sample);
 	if (p_sample) {
 		IMFSample_Release(p_sample);

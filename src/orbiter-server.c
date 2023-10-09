@@ -1,7 +1,6 @@
 #include "cdk.h"
 #include "common/synchronized-queue.h"
 #include "media/video-capture/video-capture.h"
-#include "media/common/win/mf-toolkit.h"
 
 static int _video_capture_thread(void* param) {
 	synchronized_queue_t* queue = param;
@@ -17,7 +16,6 @@ static int _network_send_thread(void* param) {
 		//// here handle data.
 		////
 		////
-		mf_dump_video("dump.h265", frame);
 
 		if (frame->bitstream) {
 			free(frame->bitstream);
