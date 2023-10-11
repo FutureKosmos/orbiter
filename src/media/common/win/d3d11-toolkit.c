@@ -40,6 +40,24 @@ void d3d11_device_create(void) {
 		return;
 	}
 	IDXGIFactory5_EnumAdapters(p_factory5, 0, &p_adapter);
+
+	DXGI_ADAPTER_DESC desc;
+	IDXGIAdapter_GetDesc(p_adapter, &desc);
+
+	if (desc.VendorId == VENDOR_ID_NVIDIA
+		|| desc.VendorId == VENDOR_ID_AMD
+		|| desc.VendorId == VENDOR_ID_MICROSOFT
+		|| desc.VendorId == VENDOR_ID_INTEL) {
+
+		d3d11_.vendor = desc.VendorId;
+	}
+	else {
+		cdk_logd("Not supported dxgi adapter.\n");
+
+		SAFE_RELEASE(p_factory5);
+		SAFE_RELEASE(p_adapter);
+		return;
+	}
 	/**
 	 * when adapter not null, driver type must be D3D_DRIVER_TYPE_UNKNOWN.
 	 * https://docs.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-d3d11createdevice

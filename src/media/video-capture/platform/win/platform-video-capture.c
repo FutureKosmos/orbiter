@@ -40,9 +40,8 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 		if (p_frame) {
 			memset(p_frame, 0, sizeof(video_frame_t));
 			
-			uint64_t bgn = cdk_time_now();
 			mf_hw_video_encode(p_tex2d, p_frame);
-			printf("cost: %llu\n", cdk_time_now()-bgn);
+			mf_dump_video("dump.h265", p_frame);
 			synchronized_queue_enqueue(p_frames, &p_frame->node);
 		}
 	}

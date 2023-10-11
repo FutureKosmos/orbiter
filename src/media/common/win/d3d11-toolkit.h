@@ -8,6 +8,11 @@ _Pragma("once")
 
 #pragma comment(lib, "d3d11.lib")
 
+#define VENDOR_ID_NVIDIA        0x10de
+#define VENDOR_ID_AMD           0x1002
+#define VENDOR_ID_MICROSOFT     0x1414
+#define VENDOR_ID_INTEL         0x8086
+
 #define SAFE_RELEASE(u) \
     do { if ((u) != NULL) (u)->lpVtbl->Release(u); (u) = NULL; } while(0)
 

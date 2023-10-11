@@ -283,9 +283,16 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 		cdk_loge("Failed to set CODECAPI_AVEncMPVGOPSize: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncMPVDefaultBPictureCount, VAL_VT_UI4(0)))) {
-		cdk_loge("Failed to set CODECAPI_AVEncMPVDefaultBPictureCount: 0x%x.\n", hr);
-		goto fail;
+	/**
+	 * Based on the current situation, it appears that the Intel HEVC hardware encoder, 
+	 * if not configured with this setting, should include B-frames in the encoded video stream. 
+	 * This can lead to intermittent stuttering during playback, where the video may lag or freeze alternately.
+	 */
+	if (d3d11_.vendor == VENDOR_ID_INTEL) {
+		if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncMPVDefaultBPictureCount, VAL_VT_UI4(0)))) {
+			cdk_loge("Failed to set CODECAPI_AVEncMPVDefaultBPictureCount: 0x%x.\n", hr);
+			goto fail;
+		}
 	}
 	if (FAILED(hr = IMFAttributes_SetUINT32(p_attrs, &MF_LOW_LATENCY, true))) {
 		cdk_loge("Failed to set MF_LOW_LATENCY: 0x%x.\n", hr);
