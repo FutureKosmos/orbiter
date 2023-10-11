@@ -1,4 +1,5 @@
 #include "d3d11-toolkit.h"
+#include "dxgi-toolkit.h"
 
 typedef struct d3d11_video_device_s {
 	ID3D11VideoDevice* p_device;
@@ -153,24 +154,10 @@ void d3d11_bgra_to_nv12(ID3D11Texture2D* p_in, ID3D11Texture2D* p_out) {
 	D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC ivd;
 	D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC ovd;
 	D3D11_VIDEO_PROCESSOR_STREAM stream;
-	D3D11_TEXTURE2D_DESC idesc;
-	D3D11_TEXTURE2D_DESC odesc;
-	static D3D11_TEXTURE2D_DESC last;
 
 	memset(&ivd, 0, sizeof(D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC));
 	memset(&ovd, 0, sizeof(D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC));
 	memset(&stream, 0, sizeof(D3D11_VIDEO_PROCESSOR_STREAM));
-	memset(&idesc, 0, sizeof(D3D11_TEXTURE2D_DESC));
-	memset(&odesc, 0, sizeof(D3D11_TEXTURE2D_DESC));
-
-	ID3D11Texture2D_GetDesc(p_in, &idesc);
-	ID3D11Texture2D_GetDesc(p_out, &odesc);
-
-	if (last.Width != idesc.Width || last.Height != idesc.Height) {
-		d3d11_video_processor_destroy();
-		d3d11_video_processor_create(idesc.Width, idesc.Height, odesc.Width, odesc.Height);
-	}
-	last = idesc;
 
 	ivd.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
 	ovd.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;

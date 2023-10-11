@@ -34,6 +34,11 @@ void platform_video_capture(synchronized_queue_t* p_frames) {
 			d3d11_texture2d_destroy(p_tex2d);
 			d3d11_texture2d_create(&p_tex2d, duplicator_.width, duplicator_.height);
 			ID3D11Texture2D_GetDesc(p_tex2d, &desc);
+
+			d3d11_video_processor_destroy();
+			d3d11_video_processor_create(duplicator_.width, duplicator_.height, desc.Width, desc.Height);
+
+			mf_hw_video_encoder_create(1000000 /** 1 Mbps */, 1920, 1080);
 		}
 		d3d11_bgra_to_nv12(frame.p_texture2d, p_tex2d);
 		p_frame = malloc(sizeof(video_frame_t));
