@@ -315,7 +315,6 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 		IMFMediaType_SetGUID(p_in_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
 		IMFMediaType_SetGUID(p_in_type, &MF_MT_SUBTYPE, &MFVideoFormat_NV12);
 		MFSetAttributeSize((IMFAttributes*)p_in_type, &MF_MT_FRAME_SIZE, width, height);
-		//MFSetAttributeRatio((IMFAttributes*)p_in_type, &MF_MT_FRAME_RATE, framerate, 1);
 
 		if (FAILED(hr = IMFTransform_SetInputType(encoder_.p_trans, in_stm, p_in_type, 0))) {
 			cdk_loge("Failed to IMFTransform_SetInputType: 0x%x.\n", hr);
