@@ -453,9 +453,6 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	hr = IMFAttributes_GetUINT64(p_sample, &MFSampleExtension_DecodeTimestamp, &t);
 	if (!FAILED(hr)) {
 		p_outdata->dts = t;
-		int64_t delta = p_outdata->pts - p_outdata->dts;
-		p_outdata->dts -= delta;
-		p_outdata->pts -= delta;
 	}
 	IMFSample_Release(p_sample);
 }

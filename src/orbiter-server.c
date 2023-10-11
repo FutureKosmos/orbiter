@@ -2,7 +2,6 @@
 #include "common/synchronized-queue.h"
 #include "media/video-capture/video-capture.h"
 #include "media/common/win/mf-toolkit.h"
-
 static int _video_capture_thread(void* param) {
 	synchronized_queue_t* queue = param;
 	video_capture(queue);
@@ -11,13 +10,24 @@ static int _video_capture_thread(void* param) {
 
 static int _network_send_thread(void* param) {
 	synchronized_queue_t* queue = param;
+	uint64_t base = cdk_time_now();
+	static uint64_t size;
 	while (true) {
 		video_frame_t* frame = synchronized_queue_data(synchronized_queue_dequeue(queue), video_frame_t, node);
 
 		//// here handle data.
 		////
 		////
+		
+		if (cdk_time_now()-base > 1000) {
+
+			printf("frame size: %d Kbit/s\n", size);
+			base = cdk_time_now();
+			size = 0;
+		}
+		size += frame->bslen / 1024 * 8;
 		mf_dump_video("dump.h265", frame);
+
 		if (frame->bitstream) {
 			free(frame->bitstream);
 			frame->bitstream = NULL;
