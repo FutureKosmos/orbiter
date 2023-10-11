@@ -16,7 +16,6 @@ typedef struct mf_video_encoder_s {
 	bool async_have_output;
 	DWORD in_stm_id;
 	DWORD out_stm_id;
-	int framerate;
 }mf_video_encoder_t;
 
 static mf_video_encoder_t encoder_;
@@ -165,7 +164,7 @@ static HRESULT MFGetAttributeSize(IMFAttributes* pattr, REFGUID guid, UINT32* pw
 #define VAL_VT_UI4(v) VARIANT_VALUE(VT_UI4, .ulVal = (v))
 #define VAL_VT_BOOL(v) VARIANT_VALUE(VT_BOOL, .boolVal = (v))
 
-void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int height) {
+void mf_hw_video_encoder_create(int bitrate, int width, int height) {
 	HRESULT hr = S_OK;
 	IMFActivate** pp_activate = NULL;
 	uint32_t num_activate = 0;
@@ -257,7 +256,6 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 	}
 	encoder_.in_stm_id = in_stm;
 	encoder_.out_stm_id = out_stm;
-	encoder_.framerate = framerate;
 
 	if (FAILED(hr = MFCreateMediaType(&p_out_type))) {
 		cdk_loge("Failed to MFCreateMediaType: 0x%x.\n", hr);
@@ -267,12 +265,15 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 	IMFMediaType_SetGUID(p_out_type, &MF_MT_SUBTYPE, &MFVideoFormat_HEVC);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_AVG_BITRATE, bitrate);
 	MFSetAttributeSize((IMFAttributes*)p_out_type, &MF_MT_FRAME_SIZE, width, height);
-	MFSetAttributeRatio((IMFAttributes*)p_out_type, &MF_MT_FRAME_RATE, framerate, 1);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_ALL_SAMPLES_INDEPENDENT, true);
 
 	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncCommonMeanBitRate, VAL_VT_UI4(bitrate)))) {
 		cdk_loge("Failed to set CODECAPI_AVEncCommonMeanBitRate: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncCommonMaxBitRate, VAL_VT_UI4(bitrate)))) {
+		cdk_loge("Failed to set CODECAPI_AVEncCommonMaxBitRate: 0x%x.\n", hr);
 		goto fail;
 	}
 	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncCommonRateControlMode, VAL_VT_UI4(eAVEncCommonRateControlMode_CBR)))) {
@@ -402,7 +403,6 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	hr = IMFSample_AddBuffer(p_sample, p_inbuf);
 	SAFE_RELEASE(p_inbuf);
 
-	hr = IMFSample_SetSampleDuration(p_sample, (LONGLONG)(10000000 / encoder_.framerate));
 	hr = IMFSample_SetSampleTime(p_sample, (LONGLONG)_mf_generate_timestamp());
 	
 	int ret = _mf_hw_video_enqueue_sample(p_sample);

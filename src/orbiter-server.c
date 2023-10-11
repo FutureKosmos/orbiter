@@ -12,6 +12,7 @@ static int _network_send_thread(void* param) {
 	synchronized_queue_t* queue = param;
 	uint64_t base = cdk_time_now();
 	static uint64_t size;
+	static int fps;
 	while (true) {
 		video_frame_t* frame = synchronized_queue_data(synchronized_queue_dequeue(queue), video_frame_t, node);
 
@@ -21,10 +22,12 @@ static int _network_send_thread(void* param) {
 		
 		if (cdk_time_now()-base > 1000) {
 
-			printf("frame size: %d Kbit/s\n", size);
+			printf("frame rate: %d, frame size: %d Kbit/s\n", fps, size);
 			base = cdk_time_now();
 			size = 0;
+			fps = 0;
 		}
+		fps++;
 		size += frame->bslen / 1024 * 8;
 		mf_dump_video("dump.h265", frame);
 
