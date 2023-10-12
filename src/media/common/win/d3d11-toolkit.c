@@ -142,9 +142,9 @@ void d3d11_video_processor_create(int in_width, int in_height, int out_width, in
 }
 
 void d3d11_video_processor_destroy(void) {
+	_d3d11_video_device_destroy();
 	SAFE_RELEASE(d3d11_vp_.p_enumerator);
 	SAFE_RELEASE(d3d11_vp_.p_processor);
-	_d3d11_video_device_destroy();
 }
 
 void d3d11_bgra_to_nv12(ID3D11Texture2D* p_in, ID3D11Texture2D* p_out) {

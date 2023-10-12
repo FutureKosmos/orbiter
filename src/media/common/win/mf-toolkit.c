@@ -19,7 +19,6 @@ typedef struct mf_video_encoder_s {
 }mf_video_encoder_t;
 
 static mf_video_encoder_t encoder_;
-static atomic_flag inited_ = ATOMIC_FLAG_INIT;
 
 static void _mf_create() {
 	HRESULT hr = S_OK;
@@ -164,7 +163,7 @@ static HRESULT MFGetAttributeSize(IMFAttributes* pattr, REFGUID guid, UINT32* pw
 #define VAL_VT_UI4(v) VARIANT_VALUE(VT_UI4, .ulVal = (v))
 #define VAL_VT_BOOL(v) VARIANT_VALUE(VT_BOOL, .boolVal = (v))
 
-void mf_hw_video_encoder_create(int bitrate, int width, int height) {
+void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int height) {
 	HRESULT hr = S_OK;
 	IMFActivate** pp_activate = NULL;
 	uint32_t num_activate = 0;
@@ -181,9 +180,7 @@ void mf_hw_video_encoder_create(int bitrate, int width, int height) {
 
 	char encoder_name[128] = { 0 };
 
-	if (!atomic_flag_test_and_set(&inited_)) {
-		_mf_create();
-	}
+	_mf_create();
 	if (FAILED(hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER, &in_type, &out_type, &pp_activate, &num_activate))) {
 		cdk_loge("Failed to MFTEnumEx: 0x%x.\n", hr);
 		return;
@@ -265,6 +262,7 @@ void mf_hw_video_encoder_create(int bitrate, int width, int height) {
 	IMFMediaType_SetGUID(p_out_type, &MF_MT_SUBTYPE, &MFVideoFormat_HEVC);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_AVG_BITRATE, bitrate);
 	MFSetAttributeSize((IMFAttributes*)p_out_type, &MF_MT_FRAME_SIZE, width, height);
+	MFSetAttributeRatio((IMFAttributes*)p_out_type, &MF_MT_FRAME_RATE, framerate, 1);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_ALL_SAMPLES_INDEPENDENT, true);
 
