@@ -1,24 +1,4 @@
 #include "mf-toolkit.h"
-#include "common/string-utils.h"
-#include <mfapi.h>
-#include <mfobjects.h>
-#include <icodecapi.h>
-#include <mftransform.h>
-#include <Mferror.h>
-#include <Codecapi.h>
-
-typedef struct mf_video_encoder_s {
-	IMFMediaEventGenerator* p_gen;
-	ICodecAPI* p_codec_api;
-	IMFTransform* p_trans;
-	IMFDXGIDeviceManager* p_manager;
-	bool async_need_input;
-	bool async_have_output;
-	DWORD in_stm_id;
-	DWORD out_stm_id;
-}mf_video_encoder_t;
-
-static mf_video_encoder_t encoder_;
 
 static void _mf_create() {
 	HRESULT hr = S_OK;
@@ -38,13 +18,13 @@ static uint64_t _mf_generate_timestamp() {
 	return now * 10000;
 }
 
-static int _mf_wait_events(void) {
-	while (!(encoder_.async_need_input || encoder_.async_have_output)) {
+static int _mf_wait_events(mf_video_encoder_t* p_encoder) {
+	while (!(p_encoder->async_need_input || p_encoder->async_have_output)) {
 		HRESULT hr = S_OK;
 		IMFMediaEvent* p_event = NULL;
 		MediaEventType type;
 
-		hr = IMFMediaEventGenerator_GetEvent(encoder_.p_gen, 0, &p_event);
+		hr = IMFMediaEventGenerator_GetEvent(p_encoder->p_gen, 0, &p_event);
 		if (FAILED(hr)) {
 			cdk_loge("Failed to IMFMediaEventGenerator_GetEvent: 0x%x.\n", hr);
 			return -1;
@@ -53,10 +33,10 @@ static int _mf_wait_events(void) {
 
 		switch (type) {
 		case METransformNeedInput:
-			encoder_.async_need_input = true;
+			p_encoder->async_need_input = true;
 			break;
 		case METransformHaveOutput:
-			encoder_.async_have_output = true;
+			p_encoder->async_have_output = true;
 			break;
 		default:;
 		}
@@ -65,31 +45,31 @@ static int _mf_wait_events(void) {
 	return 0;
 }
 
-static int _mf_hw_video_enqueue_sample(IMFSample* p_sample) {
+static int _mf_hw_video_enqueue_sample(mf_video_encoder_t* p_encoder, IMFSample* p_sample) {
 	int ret = 0;
 	HRESULT hr = S_OK;
 	
-	if ((ret = _mf_wait_events()) < 0) {
+	if ((ret = _mf_wait_events(p_encoder)) < 0) {
 		return ret;
 	}
-	if (!encoder_.async_need_input) {
+	if (!p_encoder->async_need_input) {
 		return -EAGAIN;
 	}
-	if (FAILED(hr = IMFTransform_ProcessInput(encoder_.p_trans, encoder_.in_stm_id, p_sample, 0))) {
+	if (FAILED(hr = IMFTransform_ProcessInput(p_encoder->p_trans, p_encoder->in_stm_id, p_sample, 0))) {
 		if (hr == MF_E_NOTACCEPTING) {
 			return -EAGAIN;
 		}
 		cdk_loge("Failed to IMFTransform_ProcessInput: 0x%x.\n", hr);
 		return -1;
 	}
-	encoder_.async_need_input = false;
+	p_encoder->async_need_input = false;
 	return 0;
 }
 
-static int _mf_hw_video_dequeue_sample(IMFSample** pp_sample) {
+static int _mf_hw_video_dequeue_sample(mf_video_encoder_t* p_encoder, IMFSample** pp_sample) {
 	HRESULT hr = S_OK;
 	MFT_OUTPUT_DATA_BUFFER outbuf = {
-		.dwStreamID = encoder_.out_stm_id,
+		.dwStreamID = p_encoder->out_stm_id,
 		.dwStatus = 0,
 		.pEvents = NULL,
 		.pSample = NULL
@@ -97,15 +77,15 @@ static int _mf_hw_video_dequeue_sample(IMFSample** pp_sample) {
 	int ret;
 	while (true) {
 		*pp_sample = NULL;
-		if (ret = _mf_wait_events() < 0) {
+		if (ret = _mf_wait_events(p_encoder) < 0) {
 			return ret;
 		}
-		if (!encoder_.async_have_output) {
+		if (!p_encoder->async_have_output) {
 			ret = 0;
 			break;
 		}
 		DWORD status;
-		hr = IMFTransform_ProcessOutput(encoder_.p_trans, 0, 1, &outbuf, &status);
+		hr = IMFTransform_ProcessOutput(p_encoder->p_trans, 0, 1, &outbuf, &status);
 		if (outbuf.pEvents) {
 			IMFCollection_Release(outbuf.pEvents);
 		}
@@ -122,17 +102,20 @@ static int _mf_hw_video_dequeue_sample(IMFSample** pp_sample) {
 		}
 		else if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
 			cdk_logi("MF_E_TRANSFORM_STREAM_CHANGE: 0x%x.\n", hr);
-			/**
-			 * Currently, only HEVC is supported, so it is impossible to reach this point; just return normally 
-			 */
-			ret = 0;
+
+			IMFMediaType* type;
+			IMFTransform_GetOutputAvailableType(p_encoder->p_trans, p_encoder->out_stm_id, 0, &type);
+			IMFTransform_SetOutputType(p_encoder->p_trans, p_encoder->out_stm_id, type, 0);
+			
+			p_encoder->async_have_output = false;
+			continue;
 		}
 		else {
 			ret = -1;
 		}
 		break;
 	}
-	encoder_.async_have_output = false;
+	p_encoder->async_have_output = false;
 
 	if (!*pp_sample) {
 		ret = -1;
@@ -163,7 +146,7 @@ static HRESULT MFGetAttributeSize(IMFAttributes* pattr, REFGUID guid, UINT32* pw
 #define VAL_VT_UI4(v) VARIANT_VALUE(VT_UI4, .ulVal = (v))
 #define VAL_VT_BOOL(v) VARIANT_VALUE(VT_BOOL, .boolVal = (v))
 
-void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int height) {
+bool mf_hw_video_encoder_create(directx_device_t* p_device, int bitrate, int framerate, int width, int height, mf_video_encoder_t* p_encoder) {
 	HRESULT hr = S_OK;
 	IMFActivate** pp_activate = NULL;
 	uint32_t num_activate = 0;
@@ -176,25 +159,25 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 	IMFMediaType* p_out_type = NULL; 
 
 	MFT_REGISTER_TYPE_INFO in_type = { MFMediaType_Video, MFVideoFormat_NV12 };
-	MFT_REGISTER_TYPE_INFO out_type = { MFMediaType_Video, MFVideoFormat_HEVC };
+	MFT_REGISTER_TYPE_INFO out_type = { MFMediaType_Video, MFVideoFormat_H264 };
 
 	char encoder_name[128] = { 0 };
 
 	_mf_create();
 	if (FAILED(hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER, &in_type, &out_type, &pp_activate, &num_activate))) {
 		cdk_loge("Failed to MFTEnumEx: 0x%x.\n", hr);
-		return;
+		goto fail;
 	}
 	if (!num_activate) {
 		cdk_loge("No available encoder.\n");
 		goto fail;
 	}
 	for (uint32_t i = 0; i < num_activate; i++) {
-		if (FAILED(hr = IMFActivate_ActivateObject(pp_activate[i], &IID_IMFTransform, &encoder_.p_trans))) {
+		if (FAILED(hr = IMFActivate_ActivateObject(pp_activate[i], &IID_IMFTransform, &p_encoder->p_trans))) {
 			cdk_loge("Failed to IMFActivate_ActivateObject: 0x%x.\n", hr);
 			goto fail;
 		}
-		if (encoder_.p_trans) {
+		if (p_encoder->p_trans) {
 			p_activate = pp_activate[i];
 			IMFActivate_AddRef(p_activate);
 			break;
@@ -205,7 +188,7 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 	}
 	CoTaskMemFree(pp_activate);
 
-	if (FAILED(hr = IMFTransform_GetAttributes(encoder_.p_trans, &p_attrs))) {
+	if (FAILED(hr = IMFTransform_GetAttributes(p_encoder->p_trans, &p_attrs))) {
 		cdk_loge("Failed to IMFTransform_GetAttributes: 0x%x.\n", hr);
 		goto fail;
 	}
@@ -231,15 +214,15 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 		cdk_loge("Failed to MF_TRANSFORM_ASYNC_UNLOCK: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFTransform_QueryInterface(encoder_.p_trans, &IID_IMFMediaEventGenerator, &encoder_.p_gen))) {
+	if (FAILED(hr = IMFTransform_QueryInterface(p_encoder->p_trans, &IID_IMFMediaEventGenerator, &p_encoder->p_gen))) {
 		cdk_loge("Failed to query IMFMediaEventGenerator: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFTransform_QueryInterface(encoder_.p_trans, &IID_ICodecAPI, &encoder_.p_codec_api))) {
+	if (FAILED(hr = IMFTransform_QueryInterface(p_encoder->p_trans, &IID_ICodecAPI, &p_encoder->p_codec_api))) {
 		cdk_loge("Failed to query ICodecAPI: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFTransform_GetStreamIDs(encoder_.p_trans, 1, &in_stm, 1, &out_stm))) {
+	if (FAILED(hr = IMFTransform_GetStreamIDs(p_encoder->p_trans, 1, &in_stm, 1, &out_stm))) {
 		if (hr == E_NOTIMPL)
 		{
 			in_stm = 0;
@@ -251,35 +234,41 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 			goto fail;
 		}
 	}
-	encoder_.in_stm_id = in_stm;
-	encoder_.out_stm_id = out_stm;
+	p_encoder->in_stm_id = in_stm;
+	p_encoder->out_stm_id = out_stm;
 
 	if (FAILED(hr = MFCreateMediaType(&p_out_type))) {
 		cdk_loge("Failed to MFCreateMediaType: 0x%x.\n", hr);
 		goto fail;
 	}
 	IMFMediaType_SetGUID(p_out_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
-	IMFMediaType_SetGUID(p_out_type, &MF_MT_SUBTYPE, &MFVideoFormat_HEVC);
+	IMFMediaType_SetGUID(p_out_type, &MF_MT_SUBTYPE, &MFVideoFormat_H264);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_AVG_BITRATE, bitrate);
+	IMFAttributes_SetUINT32(p_out_type, &MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Main);
 	MFSetAttributeSize((IMFAttributes*)p_out_type, &MF_MT_FRAME_SIZE, width, height);
 	MFSetAttributeRatio((IMFAttributes*)p_out_type, &MF_MT_FRAME_RATE, framerate, 1);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_ALL_SAMPLES_INDEPENDENT, true);
-
-	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncCommonMeanBitRate, VAL_VT_UI4(bitrate)))) {
+	IMFAttributes_SetUINT32(p_attrs, &MF_LOW_LATENCY, true);
+	
+	if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncCommonMeanBitRate, VAL_VT_UI4(bitrate)))) {
 		cdk_loge("Failed to set CODECAPI_AVEncCommonMeanBitRate: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncCommonMaxBitRate, VAL_VT_UI4(bitrate)))) {
+	if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncCommonMaxBitRate, VAL_VT_UI4(bitrate)))) {
 		cdk_loge("Failed to set CODECAPI_AVEncCommonMaxBitRate: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncCommonRateControlMode, VAL_VT_UI4(eAVEncCommonRateControlMode_CBR)))) {
+	if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncCommonRateControlMode, VAL_VT_UI4(eAVEncCommonRateControlMode_CBR)))) {
 		cdk_loge("Failed to set CODECAPI_AVEncCommonRateControlMode: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncMPVGOPSize, VAL_VT_UI4(0xffffffff)))) {
+	if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncMPVGOPSize, VAL_VT_UI4(0xffffffff)))) {
 		cdk_loge("Failed to set CODECAPI_AVEncMPVGOPSize: 0x%x.\n", hr);
+		goto fail;
+	}
+	if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncVideoForceKeyFrame, VAL_VT_UI4(1)))) {
+		cdk_loge("Failed to set CODECAPI_AVEncVideoForceKeyFrame: 0x%x.\n", hr);
 		goto fail;
 	}
 	/**
@@ -287,17 +276,14 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 	 * if not configured with this setting, should include B-frames in the encoded video stream. 
 	 * This can lead to intermittent stuttering during playback, where the video may lag or freeze alternately.
 	 */
-	if (d3d11_.vendor == VENDOR_ID_INTEL) {
-		if (FAILED(hr = ICodecAPI_SetValue(encoder_.p_codec_api, &CODECAPI_AVEncMPVDefaultBPictureCount, VAL_VT_UI4(0)))) {
+	if (p_device->vendor == VENDOR_ID_INTEL) {
+		if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncMPVDefaultBPictureCount, VAL_VT_UI4(0)))) {
 			cdk_loge("Failed to set CODECAPI_AVEncMPVDefaultBPictureCount: 0x%x.\n", hr);
 			goto fail;
 		}
 	}
-	if (FAILED(hr = IMFAttributes_SetUINT32(p_attrs, &MF_LOW_LATENCY, true))) {
-		cdk_loge("Failed to set MF_LOW_LATENCY: 0x%x.\n", hr);
-		goto fail;
-	}
-	if (FAILED(hr = IMFTransform_SetOutputType(encoder_.p_trans, out_stm, p_out_type, 0))) {
+	
+	if (FAILED(hr = IMFTransform_SetOutputType(p_encoder->p_trans, out_stm, p_out_type, 0))) {
 		cdk_loge("Failed to IMFTransform_SetOutputType: 0x%x.\n", hr);
 		goto fail;
 	}
@@ -307,49 +293,48 @@ void mf_hw_video_encoder_create(int bitrate, int framerate, int width, int heigh
 	}
 	for (DWORD i = 0;; i++)
 	{
-		if (FAILED(hr = IMFTransform_GetInputAvailableType(encoder_.p_trans, in_stm, i, &p_in_type))) {
+		if (FAILED(hr = IMFTransform_GetInputAvailableType(p_encoder->p_trans, in_stm, i, &p_in_type))) {
 			cdk_loge("Failed to IMFTransform_GetInputAvailableType: 0x%x.\n", hr);
 			goto fail;
 		}
 		IMFMediaType_SetGUID(p_in_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
 		IMFMediaType_SetGUID(p_in_type, &MF_MT_SUBTYPE, &MFVideoFormat_NV12);
-		MFSetAttributeSize((IMFAttributes*)p_in_type, &MF_MT_FRAME_SIZE, width, height);
 
-		if (FAILED(hr = IMFTransform_SetInputType(encoder_.p_trans, in_stm, p_in_type, 0))) {
+		if (FAILED(hr = IMFTransform_SetInputType(p_encoder->p_trans, in_stm, p_in_type, 0))) {
 			cdk_loge("Failed to IMFTransform_SetInputType: 0x%x.\n", hr);
 			goto fail;
 		}
 		break;
 	}
 	UINT token;
-	if (FAILED(hr = MFCreateDXGIDeviceManager(&token, &encoder_.p_manager))) {
+	if (FAILED(hr = MFCreateDXGIDeviceManager(&token, &p_encoder->p_manager))) {
 		cdk_loge("Failed to MFCreateDXGIDeviceManager: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFDXGIDeviceManager_ResetDevice(encoder_.p_manager, (IUnknown*)d3d11_.p_device, token))) {
+	if (FAILED(hr = IMFDXGIDeviceManager_ResetDevice(p_encoder->p_manager, (IUnknown*)p_device->p_dev, token))) {
 		cdk_loge("Failed to IMFDXGIDeviceManager_ResetDevice: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, (ULONG_PTR)encoder_.p_manager))) {
+	if (FAILED(hr = IMFTransform_ProcessMessage(p_encoder->p_trans, MFT_MESSAGE_SET_D3D_MANAGER, (ULONG_PTR)p_encoder->p_manager))) {
 		cdk_loge("Failed to set d3d manager: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_COMMAND_FLUSH, 0))) {
+	if (FAILED(hr = IMFTransform_ProcessMessage(p_encoder->p_trans, MFT_MESSAGE_COMMAND_FLUSH, 0))) {
 		cdk_loge("Failed to flush encoder: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0))) {
+	if (FAILED(hr = IMFTransform_ProcessMessage(p_encoder->p_trans, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0))) {
 		cdk_loge("Failed to start streaming: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0))) {
+	if (FAILED(hr = IMFTransform_ProcessMessage(p_encoder->p_trans, MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0))) {
 		cdk_loge("Failed to start stream: 0x%x.\n", hr);
 		goto fail;
 	}
 	SAFE_RELEASE(p_in_type);
 	SAFE_RELEASE(p_out_type);
 	SAFE_RELEASE(p_attrs);
-	return;
+	return true;
 fail:
 	for (uint32_t i = 0; i < num_activate; i++) {
 		SAFE_RELEASE(pp_activate[i]);
@@ -361,26 +346,31 @@ fail:
 	SAFE_RELEASE(p_attrs);
 	SAFE_RELEASE(p_activate);
 
-	SAFE_RELEASE(encoder_.p_manager);
-	SAFE_RELEASE(encoder_.p_gen);
-	SAFE_RELEASE(encoder_.p_codec_api);
-	SAFE_RELEASE(encoder_.p_trans);
+	SAFE_RELEASE(p_encoder->p_manager);
+	SAFE_RELEASE(p_encoder->p_gen);
+	SAFE_RELEASE(p_encoder->p_codec_api);
+	SAFE_RELEASE(p_encoder->p_trans);
+	return false;
 }
 
-void mf_hw_video_encoder_destroy() {
-	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
-	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
-	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_COMMAND_FLUSH, 0);
-	IMFTransform_ProcessMessage(encoder_.p_trans, MFT_MESSAGE_SET_D3D_MANAGER, (ULONG_PTR)0);
+void mf_hw_video_encoder_reconfigure(int bitrate, int framerate, int width, int height) {
 
-	SAFE_RELEASE(encoder_.p_manager);
-	SAFE_RELEASE(encoder_.p_gen);
-	SAFE_RELEASE(encoder_.p_codec_api);
-	SAFE_RELEASE(encoder_.p_trans);
+}
+
+void mf_hw_video_encoder_destroy(mf_video_encoder_t* p_encoder) {
+	IMFTransform_ProcessMessage(p_encoder->p_trans, MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
+	IMFTransform_ProcessMessage(p_encoder->p_trans, MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
+	IMFTransform_ProcessMessage(p_encoder->p_trans, MFT_MESSAGE_COMMAND_FLUSH, 0);
+	IMFTransform_ProcessMessage(p_encoder->p_trans, MFT_MESSAGE_SET_D3D_MANAGER, (ULONG_PTR)0);
+
+	SAFE_RELEASE(p_encoder->p_manager);
+	SAFE_RELEASE(p_encoder->p_gen);
+	SAFE_RELEASE(p_encoder->p_codec_api);
+	SAFE_RELEASE(p_encoder->p_trans);
 	_mf_destroy();
 }
 
-void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
+void mf_hw_video_encode(mf_video_encoder_t* p_encoder, ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 	HRESULT hr = S_OK;
 	IMFMediaBuffer* p_inbuf = NULL;
 	IMFMediaBuffer* p_outbuf = NULL;
@@ -403,14 +393,14 @@ void mf_hw_video_encode(ID3D11Texture2D* p_indata, video_frame_t* p_outdata) {
 
 	hr = IMFSample_SetSampleTime(p_sample, (LONGLONG)_mf_generate_timestamp());
 	
-	int ret = _mf_hw_video_enqueue_sample(p_sample);
+	int ret = _mf_hw_video_enqueue_sample(p_encoder, p_sample);
 	if (p_sample) {
 		IMFSample_Release(p_sample);
 	}
 	if (ret < 0 && ret != -EAGAIN) {
 		return;
 	}
-	ret = _mf_hw_video_dequeue_sample(&p_sample);
+	ret = _mf_hw_video_dequeue_sample(p_encoder, &p_sample);
 	if (ret < 0) {
 		return;
 	}

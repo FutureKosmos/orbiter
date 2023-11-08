@@ -4,7 +4,17 @@
 #include "media/common/win/mf-toolkit.h"
 static int _video_capture_thread(void* param) {
 	synchronized_queue_t* queue = param;
+	video_capture_conf_t conf = {
+		.bitrate = 1000000, /* 1Mbits*/
+		.framerate = 30,
+		.resolution.width = 1920,
+		.resolution.height = 1080,
+		.pixelfmt = VIDEO_CAPTURE_PIXEL_FMT_NV12,
+		.encfmt = VIDEO_CAPTURE_ENC_FMT_H264
+	};
+	video_capture_create(conf);
 	video_capture(queue);
+	video_capture_destroy();
 	return 0;
 }
 
@@ -29,7 +39,7 @@ static int _network_send_thread(void* param) {
 		}
 		fps++;
 		size += frame->bslen / 1024 * 8;
-		mf_dump_video("dump.h265", frame);
+		mf_dump_video("dump.h264", frame);
 
 		if (frame->bitstream) {
 			free(frame->bitstream);
