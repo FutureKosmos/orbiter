@@ -159,7 +159,7 @@ bool mf_hw_video_encoder_create(directx_device_t* p_device, int bitrate, int fra
 	IMFMediaType* p_out_type = NULL; 
 
 	MFT_REGISTER_TYPE_INFO in_type = { MFMediaType_Video, MFVideoFormat_NV12 };
-	MFT_REGISTER_TYPE_INFO out_type = { MFMediaType_Video, MFVideoFormat_H264 };
+	MFT_REGISTER_TYPE_INFO out_type = { MFMediaType_Video, MFVideoFormat_HEVC };
 
 	char encoder_name[128] = { 0 };
 
@@ -242,7 +242,7 @@ bool mf_hw_video_encoder_create(directx_device_t* p_device, int bitrate, int fra
 		goto fail;
 	}
 	IMFMediaType_SetGUID(p_out_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
-	IMFMediaType_SetGUID(p_out_type, &MF_MT_SUBTYPE, &MFVideoFormat_H264);
+	IMFMediaType_SetGUID(p_out_type, &MF_MT_SUBTYPE, &MFVideoFormat_HEVC);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_AVG_BITRATE, bitrate);
 	IMFAttributes_SetUINT32(p_out_type, &MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Main);
 	MFSetAttributeSize((IMFAttributes*)p_out_type, &MF_MT_FRAME_SIZE, width, height);

@@ -10,7 +10,6 @@ static int _video_capture_thread(void* param) {
 		.resolution.width = 1920,
 		.resolution.height = 1080,
 		.pixelfmt = VIDEO_CAPTURE_PIXEL_FMT_NV12,
-		.encfmt = VIDEO_CAPTURE_ENC_FMT_H264
 	};
 	video_capture_create(conf);
 	video_capture(queue);
@@ -39,7 +38,7 @@ static int _network_send_thread(void* param) {
 		}
 		fps++;
 		size += frame->bslen / 1024 * 8;
-		mf_dump_video("dump.h264", frame);
+		mf_dump_video("dump.h265", frame);
 
 		if (frame->bitstream) {
 			free(frame->bitstream);

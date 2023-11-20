@@ -18,13 +18,6 @@ typedef enum video_capture_pixelfmt_e {
 	VIDEO_CAPTURE_PIXEL_FMT_END
 }video_capture_pixelfmt_t;
 
-typedef enum video_capture_encfmt_e {
-	VIDEO_CAPTURE_ENC_FMT_NONE,
-	VIDEO_CAPTURE_ENC_FMT_H264,
-	VIDEO_CAPTURE_ENC_FMT_HEVC,
-	VIDEO_CAPTURE_ENC_FMT_END
-}video_capture_encfmt_t;
-
 typedef struct video_capture_conf_s {
 	struct {
 		int width;
@@ -35,10 +28,9 @@ typedef struct video_capture_conf_s {
 	int bitrate;
 
 	video_capture_pixelfmt_t pixelfmt;
-	video_capture_encfmt_t encfmt;
 }video_capture_conf_t;
 
 extern void video_capture_create(video_capture_conf_t conf);
 extern void video_capture(synchronized_queue_t* p_frames);
-extern void video_capture_reconfigure(video_capture_conf_t conf);
+extern void video_capture_reconfigure(int width, int height);
 extern void video_capture_destroy(void);

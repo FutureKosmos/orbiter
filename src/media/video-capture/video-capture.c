@@ -9,8 +9,8 @@ void video_capture(synchronized_queue_t* p_frames) {
 	platform_video_capture(p_frames);
 }
 
-void video_capture_reconfigure(video_capture_conf_t conf) {
-	platform_video_capture_reconfigure(conf);
+void video_capture_reconfigure(int width, int height) {
+	platform_video_capture_reconfigure(width, height);
 }
 
 void video_capture_destroy(void) {

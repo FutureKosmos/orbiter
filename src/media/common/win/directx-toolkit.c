@@ -28,7 +28,7 @@ bool directx_device_create(directx_device_t* p_device) {
 		p_device->vendor = desc.VendorId;
 	}
 	else {
-		cdk_logd("Not supported dxgi adapter.\n");
+		cdk_logd("not supported dxgi adapter.\n");
 		goto fail;
 	}
 	/**
