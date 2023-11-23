@@ -159,7 +159,7 @@ bool mf_hw_video_encoder_create(directx_device_t* p_device, int bitrate, int fra
 	IMFMediaType* p_out_type = NULL; 
 
 	MFT_REGISTER_TYPE_INFO in_type = { MFMediaType_Video, MFVideoFormat_NV12 };
-	MFT_REGISTER_TYPE_INFO out_type = { MFMediaType_Video, MFVideoFormat_HEVC };
+	MFT_REGISTER_TYPE_INFO out_type = { MFMediaType_Video, MFVideoFormat_H264 };
 
 	char encoder_name[128] = { 0 };
 
@@ -242,9 +242,9 @@ bool mf_hw_video_encoder_create(directx_device_t* p_device, int bitrate, int fra
 		goto fail;
 	}
 	IMFMediaType_SetGUID(p_out_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
-	IMFMediaType_SetGUID(p_out_type, &MF_MT_SUBTYPE, &MFVideoFormat_HEVC);
+	IMFMediaType_SetGUID(p_out_type, &MF_MT_SUBTYPE, &MFVideoFormat_H264);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_AVG_BITRATE, bitrate);
-	IMFAttributes_SetUINT32(p_out_type, &MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Main);
+	IMFAttributes_SetUINT32(p_out_type, &MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base);
 	MFSetAttributeSize((IMFAttributes*)p_out_type, &MF_MT_FRAME_SIZE, width, height);
 	MFSetAttributeRatio((IMFAttributes*)p_out_type, &MF_MT_FRAME_RATE, framerate, 1);
 	IMFMediaType_SetUINT32(p_out_type, &MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
@@ -259,7 +259,7 @@ bool mf_hw_video_encoder_create(directx_device_t* p_device, int bitrate, int fra
 		cdk_loge("Failed to set CODECAPI_AVEncCommonMaxBitRate: 0x%x.\n", hr);
 		goto fail;
 	}
-	if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncCommonRateControlMode, VAL_VT_UI4(eAVEncCommonRateControlMode_CBR)))) {
+	if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncCommonRateControlMode, VAL_VT_UI4(eAVEncCommonRateControlMode_PeakConstrainedVBR)))) {
 		cdk_loge("Failed to set CODECAPI_AVEncCommonRateControlMode: 0x%x.\n", hr);
 		goto fail;
 	}
@@ -353,8 +353,11 @@ fail:
 	return false;
 }
 
-void mf_hw_video_encoder_reconfigure(int bitrate, int framerate, int width, int height) {
-
+void mf_hw_video_encoder_force_keyframe(mf_video_encoder_t* p_encoder) {
+	HRESULT hr = S_OK;
+	if (FAILED(hr = ICodecAPI_SetValue(p_encoder->p_codec_api, &CODECAPI_AVEncVideoForceKeyFrame, VAL_VT_UI4(1)))) {
+		cdk_loge("Failed to set CODECAPI_AVEncVideoForceKeyFrame: 0x%x.\n", hr);
+	}
 }
 
 void mf_hw_video_encoder_destroy(mf_video_encoder_t* p_encoder) {

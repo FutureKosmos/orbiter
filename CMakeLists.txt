@@ -28,14 +28,20 @@ set(COMMON_SRCS
 	src/common/string-utils.c
 )
 
+if(WIN32)
+	list(APPEND COMMON_SRCS 
+		src/media/common/win/mf-toolkit.c
+		src/media/common/win/directx-toolkit.c
+	)
+endif()
+
 set(SERVER_SRCS
 	src/orbiter-server.c
 	src/media/video-capture/video-capture.c
 )
+
 if(WIN32)
 	list(APPEND SERVER_SRCS 
-		src/media/common/win/mf-toolkit.c
-		src/media/common/win/directx-toolkit.c
 		src/media/video-capture/platform/win/platform-video-capture.c
 	)
 endif()

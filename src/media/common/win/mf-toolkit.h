@@ -27,6 +27,6 @@ typedef struct mf_video_encoder_s {
 
 extern void mf_hw_video_encode(mf_video_encoder_t* p_encoder, ID3D11Texture2D* p_indata, video_frame_t* p_outdata);
 extern bool mf_hw_video_encoder_create(directx_device_t* p_device, int bitrate, int framerate, int width, int height, mf_video_encoder_t* p_encoder);
-extern void mf_hw_video_encoder_reconfigure(int bitrate, int framerate, int width, int height);
+extern void mf_hw_video_encoder_force_keyframe(mf_video_encoder_t* p_encoder);
 extern void mf_hw_video_encoder_destroy(mf_video_encoder_t* p_encoder);
 extern void mf_dump_video(const char* filename, video_frame_t* frame);
