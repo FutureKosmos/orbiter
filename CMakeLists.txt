@@ -13,13 +13,9 @@ add_compile_options("/experimental:c11atomics")
 add_compile_options("/D_CRT_SECURE_NO_WARNINGS")
 endif()
 
-find_package(Threads REQUIRED)
-find_package(OpenSSL REQUIRED)
-
 include_directories(include)
 include_directories(src)
 include_directories(third-party/cdk/include)
-include_directories(${OPENSSL_INCLUDE_DIR})
 
 link_directories(third-party/cdk/lib)
 
@@ -47,4 +43,4 @@ if(WIN32)
 endif()
 
 add_executable(orbiter-server ${SERVER_SRCS} ${COMMON_SRCS})
-target_link_libraries(orbiter-server PUBLIC Threads::Threads cdk ${OPENSSL_LIBRARIES})
+target_link_libraries(orbiter-server PUBLIC cdk)
